@@ -847,21 +847,37 @@
 <script>
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
+  const GNEWS_KEY = 'ca44fcb720f1d01ebb06e8c270ff4e37';
+  const GNEWS_BASE = 'https://gnews.io/api/v4/top-headlines';
 
   const FEEDS = {
     turkey: [
-      { url: 'https://www.hurriyet.com.tr/rss/anasayfa',   name: 'Hürriyet',   count: 8 },
-      { url: 'https://www.ntv.com.tr/gundem.rss',           name: 'NTV',        count: 8 },
-      { url: 'https://www.sozcu.com.tr/rss/anasayfa.xml',   name: 'Sözcü',      count: 6 },
-      { url: 'https://www.haberturk.com/rss',               name: 'Habertürk',  count: 6 },
+      { url: `${GNEWS_BASE}?lang=tr&country=tr&max=10&apikey=${GNEWS_KEY}`,  name: 'Türkiye' },
     ],
     world: [
-      { url: 'https://feeds.bbci.co.uk/news/world/rss.xml',                   name: 'BBC World',   count: 8 },
-      { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',        name: 'NY Times',    count: 6 },
-      { url: 'https://www.aljazeera.com/xml/rss/all.xml',                     name: 'Al Jazeera',  count: 8 },
-      { url: 'http://rss.cnn.com/rss/edition_world.rss',                      name: 'CNN Intl',    count: 8 },
+      { url: `${GNEWS_BASE}?lang=en&topic=world&max=10&apikey=${GNEWS_KEY}`, name: 'Dünya' },
+      { url: `${GNEWS_BASE}?lang=en&topic=breaking-news&max=6&apikey=${GNEWS_KEY}`, name: 'Breaking' },
     ],
   };
+
+  // ── FETCH FEED ───────────────────────────────────────────────────────────────
+  async function fetchFeed(feed) {
+    try {
+      const res  = await fetch(feed.url, { cache: 'no-cache' });
+      const data = await res.json();
+      if (!data.articles) return [];
+      return data.articles.map(a => ({
+        title:   a.title       || '',
+        desc:    a.description || '',
+        link:    a.url         || '',
+        source:  a.source?.name || feed.name,
+        pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
+      })).filter(i => i.title && i.link);
+    } catch(e) {
+      console.warn('fetchFeed error:', feed.name, e);
+      return [];
+    }
+  }
 
   // ── BREAKING NEWS KEYWORDS ──────────────────────────────────────────────────
   // Türkçe + İngilizce kritik anahtar kelimeler
@@ -1029,83 +1045,7 @@
     }, 1000);
   }
 
-  // ── FETCH FEED — paralel + timeout ──────────────────────────────────────────
 
-  function fetchWithTimeout(url, ms = 8000) {
-    return Promise.race([
-      fetch(url, { cache: 'no-cache' }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))
-    ]);
-  }
-
-  async function fetchFeed(feed) {
-    const encoded = encodeURIComponent(feed.url);
-
-    // Tüm proxy'leri AYNI ANDA başlat — hangisi önce dönerse onu kullan
-    const attempts = [
-
-      // 1. rss2json
-      fetchWithTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${encoded}&count=${feed.count}`)
-        .then(r => r.json())
-        .then(data => {
-          if (data.status !== 'ok' || !data.items?.length) throw new Error('empty');
-          return data.items.slice(0, feed.count).map(item => ({
-            title:   cleanText(item.title),
-            desc:    cleanText(item.description || item.content || ''),
-            link:    item.link,
-            source:  feed.name,
-            pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
-          }));
-        }),
-
-      // 2. allorigins
-      fetchWithTimeout(`https://api.allorigins.win/raw?url=${encoded}`)
-        .then(r => r.text())
-        .then(xml => {
-          const items = parseRSS(xml, feed);
-          if (!items.length) throw new Error('empty');
-          return items;
-        }),
-
-      // 3. corsproxy.io
-      fetchWithTimeout(`https://corsproxy.io/?${encoded}`)
-        .then(r => r.text())
-        .then(xml => {
-          const items = parseRSS(xml, feed);
-          if (!items.length) throw new Error('empty');
-          return items;
-        }),
-    ];
-
-    // İlk başarılı sonucu al
-    try {
-      return await Promise.any(attempts);
-    } catch(e) {
-      return [];
-    }
-  }
-
-  // Ham RSS/XML ayrıştır
-  function parseRSS(xmlStr, feed) {
-    try {
-      const parser = new DOMParser();
-      const doc    = parser.parseFromString(xmlStr, 'text/xml');
-      const items  = [...doc.querySelectorAll('item')].slice(0, feed.count);
-      if (!items.length) return [];
-      return items.map(item => {
-        const get = tag => item.querySelector(tag)?.textContent?.trim() || '';
-        const link = get('link') || item.querySelector('guid')?.textContent || '';
-        const pubStr = get('pubDate');
-        return {
-          title:   cleanText(get('title')),
-          desc:    cleanText(get('description')),
-          link,
-          source:  feed.name,
-          pubDate: pubStr ? new Date(pubStr) : new Date(),
-        };
-      }).filter(i => i.title && i.link);
-    } catch(e) { return []; }
-  }
 
   function cleanText(html) {
     const tmp = document.createElement('div');
