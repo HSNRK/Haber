@@ -941,6 +941,19 @@
   const GNEWS_BASE = 'https://gnews.io/api/v4/top-headlines';
   const GUARDIAN   = 'https://content.guardianapis.com';
   const G_KEY      = 'test';
+  const RSS2JSON   = 'https://api.rss2json.com/v1/api.json';
+
+  // Dünya RSS kaynakları — rss2json üzerinden (CORS yok, güvenilir)
+  const WORLD_RSS = [
+    { url: 'https://feeds.bbci.co.uk/news/world/rss.xml',                        name: 'BBC World',    count: 6 },
+    { url: 'https://www.aljazeera.com/xml/rss/all.xml',                          name: 'Al Jazeera',   count: 5 },
+    { url: 'https://feeds.skynews.com/feeds/rss/world.xml',                      name: 'Sky News',     count: 5 },
+    { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',             name: 'NY Times',     count: 5 },
+    { url: 'http://rss.cnn.com/rss/edition_world.rss',                           name: 'CNN Intl',     count: 5 },
+    { url: 'https://feeds.reuters.com/reuters/worldNews',                        name: 'Reuters',      count: 5 },
+    { url: 'https://www.theguardian.com/world/rss',                              name: 'The Guardian', count: 4 },
+    { url: 'https://feeds.washingtonpost.com/rss/world',                         name: 'Wash. Post',   count: 4 },
+  ];
 
   // ── FETCH WITH TIMEOUT ───────────────────────────────────────────────────────
   function fetchTimeout(url, ms = 10000) {
@@ -1032,39 +1045,57 @@
     return translateItems(raw);
   }
 
-  // ── 🌍 DÜNYA — GNews İngilizce + Guardian (doğru etiketlerle) ─────────────────
+  // ── 🌍 DÜNYA — RSS'den gerçek çoklu kaynak (BBC, Al Jazeera, Sky, NYT, CNN...) ──
   async function fetchWorldNews() {
-    // GNews'den İngilizce dünya haberleri (gerçek BBC/CNN/Reuters linkleri)
-    let gnewsWorld = [];
+    // rss2json üzerinden tüm kaynakları paralel çek
+    const rssResults = await Promise.all(
+      WORLD_RSS.map(src => fetchRSS2JSON(src).catch(() => []))
+    );
+
+    const allItems = rssResults.flat();
+
+    // GNews de dene (bonus kaynaklar için)
     try {
-      const res  = await fetchTimeout(`${GNEWS_BASE}?lang=en&topic=world&max=15&apikey=${GNEWS_KEY}`);
+      const res  = await fetchTimeout(`${GNEWS_BASE}?lang=en&topic=world&max=10&apikey=${GNEWS_KEY}`);
       const data = await res.json();
       if (data.articles?.length) {
-        gnewsWorld = data.articles.map(a => ({
-          title:   a.title       || '',
+        const gnews = data.articles.map(a => ({
+          title:   a.title || '',
           desc:    a.description || '',
-          link:    a.url         || '#',
+          link:    a.url || '#',
           source:  domainToSource(a.url) || a.source?.name || 'Dünya',
           pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
         })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
+        allItems.push(...gnews);
       }
-    } catch(e) { console.warn('GNews World failed:', e); }
+    } catch(e) {}
 
-    // Guardian'dan ek haberler (doğru "The Guardian" etiketiyle)
-    const guardianWorld = await fetchGuardian(
-      'section=world&order-by=newest&page-size=15', 'The Guardian'
-    ).catch(() => []);
-
-    // İkisini birleştir, tekrarları çıkar
+    // Tekrarları çıkar, sırala
     const seen = new Set();
-    const raw  = [...gnewsWorld, ...guardianWorld].filter(i => {
-      if (seen.has(i.link)) return false; seen.add(i.link); return true;
+    const raw  = allItems.filter(i => {
+      if (!i.title || !i.link || seen.has(i.link)) return false;
+      seen.add(i.link); return true;
     }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 25);
 
     return translateItems(raw);
   }
 
-  // ── GUARDIAN YARDIMCI ─────────────────────────────────────────────────────────
+  // ── RSS2JSON YARDIMCI ──────────────────────────────────────────────────────────
+  async function fetchRSS2JSON(src) {
+    const url  = `${RSS2JSON}?rss_url=${encodeURIComponent(src.url)}&count=${src.count}&api_key=`;
+    const res  = await fetchTimeout(url, 9000);
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.items?.length) return [];
+    return data.items.map(item => ({
+      title:   cleanText(item.title),
+      desc:    cleanText(item.description || item.content || ''),
+      link:    item.link || item.url || '#',
+      source:  src.name,
+      pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
+    })).filter(i => i.title && i.link);
+  }
+
+  // ── GUARDIAN YARDIMCI (Türkiye yedek için hâlâ kullanılıyor) ─────────────────
   async function fetchGuardian(params, sourceName) {
     const url  = `${GUARDIAN}/search?api-key=${G_KEY}&show-fields=trailText&${params}`;
     const res  = await fetchTimeout(url);
@@ -1073,8 +1104,8 @@
     return (data.response.results || []).map(a => ({
       title:   a.webTitle || '',
       desc:    a.fields?.trailText || '',
-      link:    a.webUrl  || '#',          // gerçek guardian.com linki
-      source:  sourceName || 'The Guardian', // doğru etiket
+      link:    a.webUrl  || '#',
+      source:  sourceName || 'The Guardian',
       pubDate: a.webPublicationDate ? new Date(a.webPublicationDate) : new Date(),
     })).filter(i => i.title);
   }
