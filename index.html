@@ -860,76 +860,66 @@
 <script>
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
-  const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
 
-  // ── CLAUDE API İLE HABER ÇEK ────────────────────────────────────────────────
-  // Proxy veya RSS sorunu yok — Claude web'de arama yaparak haberleri getirir
+  // The Guardian API — ücretsiz, CORS yok, API anahtarı gerekmez (test key çalışır)
+  const GUARDIAN = 'https://content.guardianapis.com';
+  const G_KEY    = 'test'; // Guardian'ın herkese açık test anahtarı
 
-  async function fetchNewsViaClaude(topic, lang) {
-    const isturkey = lang === 'tr';
-    const prompt = isturkey
-      ? `Sen bir haber asistanısın. Şu an Türkiye'deki en önemli ve güncel 12 haberi listele. Bugünün tarihi: ${new Date().toLocaleDateString('tr-TR')}. 
-
-Her haber için şu JSON formatını kullan. SADECE JSON döndür, başka hiçbir şey yazma:
-[
-  {
-    "title": "Haber başlığı",
-    "desc": "2-3 cümlelik özet",
-    "link": "https://haber.linki.com",
-    "source": "Kaynak adı (NTV, Hürriyet, CNN Türk vb.)",
-    "pubDate": "2025-03-18T12:00:00Z"
+  // ── FETCH WITH TIMEOUT ───────────────────────────────────────────────────────
+  function fetchTimeout(url, ms = 10000) {
+    const ctrl = new AbortController();
+    const id   = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(id));
   }
-]`
-      : `You are a news assistant. List the 12 most important current world news stories right now. Today's date: ${new Date().toLocaleDateString('en-US')}.
 
-Return ONLY a JSON array, no other text:
-[
-  {
-    "title": "News headline",
-    "desc": "2-3 sentence summary",
-    "link": "https://news.link.com",
-    "source": "Source name (BBC, CNN, Reuters etc.)",
-    "pubDate": "2025-03-18T12:00:00Z"
-  }
-]`;
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 2000,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-
-    const data = await response.json();
-
-    // Tüm text bloklarını birleştir
-    const text = (data.content || [])
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('');
-
-    // JSON array'i bul ve parse et
-    const match = text.match(/\[[\s\S]*\]/);
-    if (!match) return [];
-
-    const items = JSON.parse(match[0]);
-    return items.map(item => ({
-      title:   item.title   || '',
-      desc:    item.desc    || '',
-      link:    item.link    || '#',
-      source:  item.source  || (isturkey ? 'Türkiye' : 'Dünya'),
-      pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
+  // ── GUARDIAN API'DEN HABER ÇEK ──────────────────────────────────────────────
+  async function fetchGuardian(params) {
+    const base = `${GUARDIAN}/search?api-key=${G_KEY}&show-fields=trailText&page-size=20&${params}`;
+    const res  = await fetchTimeout(base);
+    const data = await res.json();
+    if (data.response?.status !== 'ok') return [];
+    return (data.response.results || []).map(a => ({
+      title:   a.webTitle || '',
+      desc:    a.fields?.trailText || '',
+      link:    a.webUrl  || '#',
+      source:  'The Guardian',
+      pubDate: a.webPublicationDate ? new Date(a.webPublicationDate) : new Date(),
     })).filter(i => i.title);
   }
 
+  // ── TÜRKİYE HABERLERİ — birden fazla kaynak ─────────────────────────────────
+  async function fetchTurkeyNews() {
+    // Guardian'dan Türkiye haberleri + genel dünya haberleri (karıştır)
+    const [trNews, moreNews] = await Promise.all([
+      fetchGuardian('q=turkey+OR+türkiye&order-by=newest').catch(() => []),
+      fetchGuardian('q=erdogan+OR+istanbul+OR+ankara&order-by=newest').catch(() => []),
+    ]);
+    const combined = [...trNews, ...moreNews];
+    // Tekrar edenleri çıkar
+    const seen = new Set();
+    return combined.filter(item => {
+      if (seen.has(item.link)) return false;
+      seen.add(item.link);
+      return true;
+    }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 20);
+  }
+
+  // ── DÜNYA HABERLERİ ─────────────────────────────────────────────────────────
+  async function fetchWorldNews() {
+    const [world, intl] = await Promise.all([
+      fetchGuardian('section=world&order-by=newest').catch(() => []),
+      fetchGuardian('section=us-news,world&order-by=newest').catch(() => []),
+    ]);
+    const combined = [...world, ...intl];
+    const seen = new Set();
+    return combined.filter(item => {
+      if (seen.has(item.link)) return false;
+      seen.add(item.link);
+      return true;
+    }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 20);
+  }
+
   function extractSource(title, fallback) {
-    if (!title) return fallback;
-    const parts = title.split(' - ');
-    if (parts.length > 1) return parts[parts.length - 1].trim();
     return fallback;
   }
 
@@ -1169,10 +1159,10 @@ Return ONLY a JSON array, no other text:
     showLoading('all-list',    'Haberler yükleniyor…');
 
     try {
-      // Claude API ile paralel çek
+      // Guardian API ile paralel çek
       const [newTurkey, newWorld] = await Promise.all([
-        fetchNewsViaClaude('turkey', 'tr').catch(() => []),
-        fetchNewsViaClaude('world',  'en').catch(() => []),
+        fetchTurkeyNews().catch(() => []),
+        fetchWorldNews().catch(()  => []),
       ]);
 
       // 🔔 BİLDİRİMLER
