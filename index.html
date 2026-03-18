@@ -1,0 +1,1325 @@
+!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Haber Bülteni</title>
+
+  <!-- PWA Meta -->
+  <meta name="theme-color" content="#0d0d0d" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Haber Bülteni" />
+  <meta name="description" content="Türkiye ve dünya haberleri – saat başı güncellenir" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --surface: #181818;
+      --surface2: #222222;
+      --border: #2e2e2e;
+      --text: #f0ece4;
+      --muted: #888;
+      --red: #e63946;
+      --gold: #f4a261;
+      --blue: #4cc9f0;
+      --green: #57cc99;
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100dvh;
+      overflow-x: hidden;
+    }
+
+    /* ── HEADER ── */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(13,13,13,0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+    }
+
+    .header-inner {
+      max-width: 700px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 58px;
+      gap: 12px;
+    }
+
+    .logo {
+      font-family: 'Libre Baskerville', serif;
+      font-size: 20px;
+      letter-spacing: -0.5px;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logo-dot {
+      width: 8px; height: 8px;
+      background: var(--red);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.3); }
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .clock {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      letter-spacing: 0.5px;
+    }
+
+    .refresh-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .refresh-btn:hover { background: #2e2e2e; border-color: #444; }
+    .refresh-btn:active { transform: scale(0.96); }
+
+    .refresh-btn svg { transition: transform 0.4s; }
+    .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── COUNTDOWN BAR ── */
+    .countdown-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 6px 16px;
+    }
+
+    .countdown-inner {
+      max-width: 700px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .progress-track {
+      flex: 1;
+      margin: 0 12px;
+      height: 2px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--red), var(--gold));
+      border-radius: 2px;
+      transition: width 1s linear;
+    }
+
+    /* ── TABS ── */
+    .tabs {
+      position: sticky;
+      top: 58px;
+      z-index: 90;
+      background: rgba(13,13,13,0.95);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+    }
+
+    .tabs-inner {
+      max-width: 700px;
+      margin: 0 auto;
+      display: flex;
+      gap: 0;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 12px 16px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      color: var(--text);
+      border-bottom-color: var(--red);
+    }
+
+    .tab-btn span { margin-right: 5px; font-size: 15px; }
+
+    /* ── CONTENT ── */
+    main {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .section { display: none; }
+    .section.active { display: block; }
+
+    /* ── NEWS LIST ── */
+    .news-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .news-item {
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+
+    .news-item:last-child { border-bottom: none; }
+
+    .news-item:hover .news-title { color: var(--gold); }
+
+    .news-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .source-badge {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: var(--surface2);
+      color: var(--gold);
+    }
+
+    .news-time {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .news-title {
+      font-family: 'Libre Baskerville', serif;
+      font-size: 16px;
+      line-height: 1.45;
+      color: var(--text);
+      transition: color 0.2s;
+      margin-bottom: 6px;
+    }
+
+    .news-desc {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .news-footer {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--blue);
+      font-weight: 500;
+    }
+
+    .news-footer svg { opacity: 0.7; }
+
+    .notif-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .notif-btn:hover { background: #2e2e2e; }
+    .notif-btn:active { transform: scale(0.96); }
+
+    /* ── BREAKING LIVE BADGE ── */
+    .breaking-live {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: var(--red);
+      animation: blink 1.2s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .is-breaking {
+      border-left: 3px solid var(--red);
+      padding-left: 13px;
+      background: linear-gradient(90deg, rgba(230,57,70,0.07) 0%, transparent 60%);
+    }
+
+    .is-breaking .news-title { color: #ffd6d9; }
+
+    /* ── SECTION HEADER ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--border);
+    }
+
+    .section-title {
+      font-family: 'Libre Baskerville', serif;
+      font-size: 18px;
+      letter-spacing: -0.3px;
+    }
+
+    .section-count {
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface2);
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    .section-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── LOADING / EMPTY ── */
+    .skeleton { animation: shimmer 1.5s ease-in-out infinite; }
+
+    @keyframes shimmer {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 0.7; }
+    }
+
+    .skeleton-item {
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .skel-line {
+      height: 10px;
+      background: var(--surface2);
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+
+    .skel-short { width: 30%; }
+    .skel-title { width: 90%; height: 14px; }
+    .skel-title2 { width: 70%; height: 14px; }
+    .skel-desc { width: 100%; }
+    .skel-desc2 { width: 60%; }
+
+    .error-box {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+    }
+
+    .error-box .icon { font-size: 40px; margin-bottom: 12px; }
+    .error-box p { font-size: 14px; line-height: 1.6; }
+
+    /* ── INSTALL BANNER ── */
+    #install-banner {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 200;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 16px;
+      box-shadow: 0 -8px 32px rgba(0,0,0,0.4);
+    }
+
+    #install-banner.show { display: block; }
+
+    .install-inner {
+      max-width: 700px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .install-icon {
+      width: 44px;
+      height: 44px;
+      background: var(--red);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+
+    .install-text { flex: 1; }
+    .install-text strong { display: block; font-size: 14px; margin-bottom: 2px; }
+    .install-text span { font-size: 12px; color: var(--muted); }
+
+    .install-actions { display: flex; gap: 8px; align-items: center; }
+
+    .btn-install {
+      background: var(--red);
+      color: #fff;
+      border: none;
+      padding: 9px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-dismiss {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 22px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 4px;
+    }
+
+    /* ── iOS INSTALL HINT ── */
+    #ios-hint {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 200;
+      background: var(--surface);
+      border-top: 2px solid var(--red);
+      padding: 16px;
+    }
+
+    #ios-hint.show { display: block; }
+
+    .ios-hint-inner {
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .ios-hint-inner h3 { font-size: 14px; margin-bottom: 8px; }
+    .ios-hint-inner p { font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+    .hint-close {
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 20px;
+      cursor: pointer;
+    }
+
+    /* ── TARİHTE BUGÜN ── */
+    #today-in-history {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.4s ease, padding 0.3s ease;
+    }
+
+    #today-in-history.expanded {
+      max-height: 320px;
+      padding: 14px 16px;
+    }
+
+    .history-inner {
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .history-toggle {
+      width: 100%;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: 'DM Sans', sans-serif;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .history-toggle-inner {
+      max-width: 700px;
+      margin: 0 auto;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .history-toggle-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: var(--muted);
+    }
+
+    .history-toggle-left .hourglass {
+      font-size: 14px;
+    }
+
+    .history-date-badge {
+      font-size: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--gold);
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .history-chevron {
+      font-size: 10px;
+      color: var(--muted);
+      transition: transform 0.3s;
+    }
+
+    .history-toggle.open .history-chevron {
+      transform: rotate(180deg);
+    }
+
+    /* scroll container */
+    .history-scroll {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding: 4px 0 8px;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .history-scroll::-webkit-scrollbar { display: none; }
+
+    .history-card {
+      flex: 0 0 220px;
+      scroll-snap-align: start;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      position: relative;
+      transition: border-color 0.2s;
+    }
+
+    .history-card:hover { border-color: #444; }
+
+    .history-year {
+      font-family: 'Libre Baskerville', serif;
+      font-size: 22px;
+      color: var(--gold);
+      line-height: 1;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .history-year-ago {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 10px;
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .history-text {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .history-skel {
+      display: flex;
+      gap: 10px;
+      padding: 4px 0 8px;
+    }
+
+    .history-skel-card {
+      flex: 0 0 220px;
+      height: 80px;
+      background: var(--surface2);
+      border-radius: 10px;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+
+    /* ── LAST UPDATE ── */
+    .last-update {
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      padding: 20px 0 8px;
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── ANIMATIONS ── */
+    .news-item {
+      animation: fadeUp 0.3s ease both;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .news-item:nth-child(1) { animation-delay: 0.0s; }
+    .news-item:nth-child(2) { animation-delay: 0.04s; }
+    .news-item:nth-child(3) { animation-delay: 0.08s; }
+    .news-item:nth-child(4) { animation-delay: 0.12s; }
+    .news-item:nth-child(5) { animation-delay: 0.16s; }
+    .news-item:nth-child(6) { animation-delay: 0.2s; }
+    .news-item:nth-child(7) { animation-delay: 0.24s; }
+    .news-item:nth-child(8) { animation-delay: 0.28s; }
+    .news-item:nth-child(9) { animation-delay: 0.32s; }
+    .news-item:nth-child(10) { animation-delay: 0.36s; }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-dot"></div>
+      Haber Bülteni
+    </div>
+    <div class="header-right">
+      <div class="clock" id="clock">--:--</div>
+      <button class="notif-btn" id="notifBtn" onclick="requestNotifPermission().then(updateNotifBtnUI)" title="Bildirim izni">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        Bildirimlere İzin Ver
+      </button>
+      <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <path d="M23 4v6h-6"/>
+          <path d="M1 20v-6h6"/>
+          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+        Yenile
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- COUNTDOWN BAR -->
+<div class="countdown-bar">
+  <div class="countdown-inner">
+    <span>Güncelleme:</span>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill" style="width:0%"></div>
+    </div>
+    <span id="nextUpdate">--:--</span>
+  </div>
+</div>
+
+<!-- TARİHTE BUGÜN TOGGLE -->
+<button class="history-toggle" id="historyToggle" onclick="toggleHistory()">
+  <div class="history-toggle-inner">
+    <div class="history-toggle-left">
+      <span class="hourglass">⏳</span>
+      TARİHTE BUGÜN
+      <span class="history-date-badge" id="historyDateBadge">—</span>
+    </div>
+    <span class="history-chevron" id="historyChevron">▼</span>
+  </div>
+</button>
+
+<!-- TARİHTE BUGÜN PANELİ -->
+<div id="today-in-history">
+  <div class="history-inner">
+    <div class="history-skel" id="history-skeleton">
+      <div class="history-skel-card"></div>
+      <div class="history-skel-card"></div>
+      <div class="history-skel-card"></div>
+    </div>
+    <div class="history-scroll" id="history-scroll" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <div class="tabs-inner">
+    <button class="tab-btn active" onclick="switchTab('turkey')" id="tab-turkey">
+      <span>🇹🇷</span> Türkiye
+    </button>
+    <button class="tab-btn" onclick="switchTab('world')" id="tab-world">
+      <span>🌍</span> Dünya
+    </button>
+    <button class="tab-btn" onclick="switchTab('all')" id="tab-all">
+      <span>📰</span> Tümü
+    </button>
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<main>
+
+  <!-- TURKEY TAB -->
+  <div class="section active" id="section-turkey">
+    <div class="section-header">
+      <div class="section-title">Türkiye'den Haberler</div>
+      <div class="section-count" id="tr-count">yükleniyor…</div>
+      <div class="section-line"></div>
+    </div>
+    <div class="news-list" id="turkey-list">
+      <!-- skeleton -->
+      <div class="skeleton">
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div><div class="skel-line skel-title2"></div><div class="skel-line skel-desc"></div><div class="skel-line skel-desc2"></div></div>
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div><div class="skel-line skel-desc"></div></div>
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div><div class="skel-line skel-title2"></div></div>
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div><div class="skel-line skel-desc"></div></div>
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div></div>
+      </div>
+    </div>
+    <div class="last-update" id="tr-update"></div>
+  </div>
+
+  <!-- WORLD TAB -->
+  <div class="section" id="section-world">
+    <div class="section-header">
+      <div class="section-title">Dünya Haberleri</div>
+      <div class="section-count" id="world-count">yükleniyor…</div>
+      <div class="section-line"></div>
+    </div>
+    <div class="news-list" id="world-list">
+      <div class="skeleton">
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div><div class="skel-line skel-title2"></div><div class="skel-line skel-desc"></div></div>
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div><div class="skel-line skel-desc"></div></div>
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div><div class="skel-line skel-title2"></div></div>
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div></div>
+        <div class="skeleton-item"><div class="skel-line skel-short"></div><div class="skel-line skel-title"></div><div class="skel-line skel-desc2"></div></div>
+      </div>
+    </div>
+    <div class="last-update" id="world-update"></div>
+  </div>
+
+  <!-- ALL TAB -->
+  <div class="section" id="section-all">
+    <div class="section-header">
+      <div class="section-title">Son Dakika – Tümü</div>
+      <div class="section-count" id="all-count">yükleniyor…</div>
+      <div class="section-line"></div>
+    </div>
+    <div class="news-list" id="all-list"></div>
+    <div class="last-update" id="all-update"></div>
+  </div>
+
+</main>
+
+<!-- INSTALL BANNER (Android/Desktop) -->
+<div id="install-banner">
+  <div class="install-inner">
+    <div class="install-icon">📰</div>
+    <div class="install-text">
+      <strong>Uygulamayı Kur</strong>
+      <span>Ana ekrana ekleyerek uygulama gibi kullan</span>
+    </div>
+    <div class="install-actions">
+      <button class="btn-install" onclick="installApp()">Kur</button>
+      <button class="btn-dismiss" onclick="dismissInstall()">✕</button>
+    </div>
+  </div>
+</div>
+
+<!-- iOS INSTALL HINT -->
+<div id="ios-hint" style="position:relative;">
+  <div class="ios-hint-inner">
+    <h3>📲 iPhone'a Ekle</h3>
+    <p>
+      1. Alttaki <strong>Paylaş</strong> butonuna (↑) dokun<br/>
+      2. <strong>"Ana Ekrana Ekle"</strong> seçeneğini seç<br/>
+      3. <strong>"Ekle"</strong> ye dokun — hazır!
+    </p>
+  </div>
+  <button class="hint-close" onclick="document.getElementById('ios-hint').classList.remove('show')">✕</button>
+</div>
+
+<script>
+  // ── CONFIG ──────────────────────────────────────────────────────────────────
+  const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+  const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
+
+  const FEEDS = {
+    turkey: [
+      { url: 'https://www.hurriyet.com.tr/rss/anasayfa',   name: 'Hürriyet',   count: 8 },
+      { url: 'https://www.ntv.com.tr/gundem.rss',           name: 'NTV',        count: 8 },
+      { url: 'https://www.sozcu.com.tr/rss/anasayfa.xml',   name: 'Sözcü',      count: 6 },
+      { url: 'https://www.haberturk.com/rss',               name: 'Habertürk',  count: 6 },
+    ],
+    world: [
+      { url: 'https://feeds.bbci.co.uk/news/world/rss.xml',                   name: 'BBC World',   count: 8 },
+      { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',        name: 'NY Times',    count: 6 },
+      { url: 'https://www.aljazeera.com/xml/rss/all.xml',                     name: 'Al Jazeera',  count: 8 },
+      { url: 'http://rss.cnn.com/rss/edition_world.rss',                      name: 'CNN Intl',    count: 8 },
+    ],
+  };
+
+  // ── BREAKING NEWS KEYWORDS ──────────────────────────────────────────────────
+  // Türkçe + İngilizce kritik anahtar kelimeler
+  const BREAKING_KEYWORDS = [
+    // Ölüm / Death
+    'öldü','hayatını kaybetti','vefat etti','katledildi','suikast',
+    'died','dead','death','killed','assassination','murdered','passed away',
+    // Doğal afet / Natural disaster
+    'deprem','büyük deprem','tsunami','sel','yanardağ','kasırga','tayfun','fırtına',
+    'earthquake','tsunami','flood','volcano','hurricane','typhoon','tornado',
+    // Saldırı / Attack
+    'saldırı','bombalama','patlama','terör','ateş açıldı','katliam','rehin',
+    'attack','bombing','explosion','terror','shooting','hostage','massacre',
+    // Kriz / Crisis
+    'nükleer','nükleer tehdit','savaş ilan','savaş başladı','olağanüstü hal','darbe',
+    'nuclear','war declared','war started','emergency','coup','martial law',
+    // Felaket / Disaster
+    'çöktü','çöküş','büyük yangın','uçak düştü','tren kazası',
+    'collapsed','major fire','plane crash','train crash','building collapse',
+  ];
+
+  // Derecelendirme fonksiyonu — kaç tane kritik kelime var?
+  function getBreakingScore(title) {
+    const lower = title.toLowerCase();
+    return BREAKING_KEYWORDS.filter(kw => lower.includes(kw)).length;
+  }
+
+  function isBreaking(title) {
+    return getBreakingScore(title) >= 1;
+  }
+
+  // ── STATE ───────────────────────────────────────────────────────────────────
+  let allTurkeyNews = [];
+  let allWorldNews  = [];
+  let lastRefresh   = null;
+  let countdownInterval = null;
+  let deferredInstall = null;
+  let notifPermission = 'default';
+  // Daha önce bildirim gönderilmiş haberlerin linkleri
+  let notifiedLinks = new Set(JSON.parse(localStorage.getItem('notifiedLinks') || '[]'));
+
+  // ── NOTIFICATION HELPERS ────────────────────────────────────────────────────
+  async function requestNotifPermission() {
+    if (!('Notification' in window)) return false;
+    if (Notification.permission === 'granted') { notifPermission = 'granted'; return true; }
+    if (Notification.permission === 'denied')  { notifPermission = 'denied';  return false; }
+    const result = await Notification.requestPermission();
+    notifPermission = result;
+    updateNotifBtnUI();
+    return result === 'granted';
+  }
+
+  function sendNotification(title, body, url, icon = '🔴') {
+    if (Notification.permission !== 'granted') return;
+    try {
+      const n = new Notification(title, {
+        body,
+        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="%23e63946"/><text y="68" x="50" text-anchor="middle" font-size="58">📰</text></svg>',
+        badge: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="%23e63946"/><text y="68" x="50" text-anchor="middle" font-size="52">📰</text></svg>',
+        tag: url || title,
+        requireInteraction: true,
+        silent: false,
+      });
+      if (url) n.onclick = () => { window.open(url, '_blank'); n.close(); };
+    } catch(e) { console.warn('Notification error:', e); }
+  }
+
+  // Saatlik özet bildirimi
+  function sendHourlyNotification(trCount, worldCount) {
+    const h = new Date().getHours();
+    sendNotification(
+      `📰 Haber Bülteni – ${String(h).padStart(2,'0')}:00 Bülteni`,
+      `Türkiye: ${trCount} yeni haber  •  Dünya: ${worldCount} yeni haber`,
+      null
+    );
+  }
+
+  // Son dakika bildirimi
+  function sendBreakingNotification(item) {
+    const emoji = item.source === 'Al Jazeera' || item.source === 'CNN Intl' || item.source === 'BBC World' || item.source === 'NY Times' ? '🌍' : '🇹🇷';
+    sendNotification(
+      `🚨 SON DAKİKA – ${item.source}`,
+      item.title,
+      item.link
+    );
+  }
+
+  // Yeni gelen haberler içinde son dakika olanları tara ve bildir
+  function scanAndNotifyBreaking(newItems) {
+    if (Notification.permission !== 'granted') return;
+    const freshMs = 30 * 60 * 1000; // son 30 dakika içinde yayınlanmış
+    newItems.forEach(item => {
+      if (notifiedLinks.has(item.link)) return;
+      const age = Date.now() - item.pubDate.getTime();
+      if (age > freshMs) return;
+      if (!isBreaking(item.title)) return;
+      notifiedLinks.add(item.link);
+      sendBreakingNotification(item);
+    });
+    // localStorage'a kaydet (max 200 link tut)
+    const arr = [...notifiedLinks].slice(-200);
+    try { localStorage.setItem('notifiedLinks', JSON.stringify(arr)); } catch(e) {}
+  }
+
+  function updateNotifBtnUI() {
+    const btn = document.getElementById('notifBtn');
+    if (!btn) return;
+    if (Notification.permission === 'granted') {
+      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> Bildirim Açık`;
+      btn.style.color = 'var(--green)';
+      btn.style.borderColor = 'var(--green)';
+    } else if (Notification.permission === 'denied') {
+      btn.innerHTML = `🔕 Bildirim Kapalı`;
+      btn.style.color = 'var(--muted)';
+      btn.title = 'Tarayıcı ayarlarından bildirimlere izin verin';
+    } else {
+      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> Bildirimlere İzin Ver`;
+    }
+  }
+
+  // ── PWA MANIFEST (inline blob) ───────────────────────────────────────────────
+  const manifest = {
+    name: 'Haber Bülteni',
+    short_name: 'Haberler',
+    description: 'Türkiye ve dünya haberleri saat başı',
+    start_url: '.',
+    display: 'standalone',
+    orientation: 'portrait',
+    background_color: '#0d0d0d',
+    theme_color: '#0d0d0d',
+    icons: [
+      { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="%23e63946"/><text y="68" x="50" text-anchor="middle" font-size="58">📰</text></svg>', sizes: '192x192', type: 'image/svg+xml' },
+      { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="%23e63946"/><text y="68" x="50" text-anchor="middle" font-size="58">📰</text></svg>', sizes: '512x512', type: 'image/svg+xml' },
+    ]
+  };
+  const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+  document.querySelector('link[rel="manifest"]') && (document.querySelector('link[rel="manifest"]') || document.createElement('link')).setAttribute && (() => {
+    const lnk = document.createElement('link');
+    lnk.rel = 'manifest';
+    lnk.href = URL.createObjectURL(manifestBlob);
+    document.head.appendChild(lnk);
+  })();
+
+  // ── CLOCK ───────────────────────────────────────────────────────────────────
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('clock').textContent = now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // ── COUNTDOWN ──────────────────────────────────────────────────────────────
+  function startCountdown() {
+    if (countdownInterval) clearInterval(countdownInterval);
+    countdownInterval = setInterval(() => {
+      if (!lastRefresh) return;
+      const elapsed = Date.now() - lastRefresh;
+      const remaining = REFRESH_INTERVAL - elapsed;
+      if (remaining <= 0) { refreshAll(); return; }
+      const pct = (elapsed / REFRESH_INTERVAL) * 100;
+      document.getElementById('progressFill').style.width = pct + '%';
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      document.getElementById('nextUpdate').textContent = `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+    }, 1000);
+  }
+
+  // ── FETCH FEED ──────────────────────────────────────────────────────────────
+  async function fetchFeed(feed) {
+    const url = RSS2JSON + encodeURIComponent(feed.url) + '&count=' + feed.count;
+    const res = await fetch(url, { cache: 'no-cache' });
+    const data = await res.json();
+    if (data.status !== 'ok') return [];
+    return data.items.map(item => ({
+      title:  cleanText(item.title),
+      desc:   cleanText(item.description || item.content || ''),
+      link:   item.link,
+      source: feed.name,
+      pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
+    }));
+  }
+
+  function cleanText(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  }
+
+  // ── RENDER NEWS ─────────────────────────────────────────────────────────────
+  function relativeTime(date) {
+    const diff = Math.floor((Date.now() - date) / 1000);
+    if (diff < 60) return 'az önce';
+    if (diff < 3600) return Math.floor(diff/60) + ' dk önce';
+    if (diff < 86400) return Math.floor(diff/3600) + ' saat önce';
+    return date.toLocaleDateString('tr-TR');
+  }
+
+  function renderNewsList(items, containerId) {
+    const container = document.getElementById(containerId);
+    if (!items.length) {
+      container.innerHTML = `<div class="error-box"><div class="icon">😔</div><p>Haber yüklenemedi.<br/>Lütfen internet bağlantınızı kontrol edin.</p></div>`;
+      return;
+    }
+    container.innerHTML = items.map((item, i) => {
+      const breaking = isBreaking(item.title);
+      return `
+      <a class="news-item${breaking ? ' is-breaking' : ''}" href="${escHtml(item.link)}" target="_blank" rel="noopener noreferrer" style="animation-delay:${i*0.04}s">
+        <div class="news-meta">
+          <span class="source-badge">${escHtml(item.source)}</span>
+          <span class="news-time">${relativeTime(item.pubDate)}</span>
+          ${breaking ? '<span class="breaking-live">🚨 SON DAKİKA</span>' : ''}
+        </div>
+        <div class="news-title">${escHtml(item.title)}</div>
+        ${item.desc ? `<div class="news-desc">${escHtml(item.desc)}</div>` : ''}
+        <div class="news-footer">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Haberin tamamını oku
+        </div>
+      </a>
+    `}).join('');
+  }
+
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── REFRESH ALL ─────────────────────────────────────────────────────────────
+  let isFirstLoad = true;
+
+  async function refreshAll() {
+    const btn = document.getElementById('refreshBtn');
+    btn.classList.add('spinning');
+
+    try {
+      // Turkey
+      const trPromises = FEEDS.turkey.map(f => fetchFeed(f).catch(() => []));
+      const trResults  = await Promise.all(trPromises);
+      const newTurkey  = trResults.flat().sort((a,b) => b.pubDate - a.pubDate).slice(0, 30);
+
+      // World
+      const wdPromises = FEEDS.world.map(f => fetchFeed(f).catch(() => []));
+      const wdResults  = await Promise.all(wdPromises);
+      const newWorld   = wdResults.flat().sort((a,b) => b.pubDate - a.pubDate).slice(0, 30);
+
+      // 🔔 BİLDİRİMLER — ilk yüklemede değil, sonraki güncellemelerde çalış
+      if (!isFirstLoad) {
+        // Son dakika taraması
+        scanAndNotifyBreaking([...newTurkey, ...newWorld]);
+        // Saatlik özet
+        sendHourlyNotification(newTurkey.length, newWorld.length);
+      }
+
+      allTurkeyNews = newTurkey;
+      allWorldNews  = newWorld;
+      isFirstLoad   = false;
+
+    } catch(e) {
+      console.error('Fetch error:', e);
+    }
+
+    // Render
+    renderNewsList(allTurkeyNews, 'turkey-list');
+    renderNewsList(allWorldNews,  'world-list');
+
+    const allNews = [...allTurkeyNews, ...allWorldNews].sort((a,b) => b.pubDate - a.pubDate);
+    renderNewsList(allNews, 'all-list');
+
+    // Update counts
+    document.getElementById('tr-count').textContent    = allTurkeyNews.length + ' haber';
+    document.getElementById('world-count').textContent  = allWorldNews.length  + ' haber';
+    document.getElementById('all-count').textContent    = allNews.length        + ' haber';
+
+    const timeStr = new Date().toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' });
+    document.getElementById('tr-update').textContent    = 'Son güncelleme: ' + timeStr;
+    document.getElementById('world-update').textContent = 'Son güncelleme: ' + timeStr;
+    document.getElementById('all-update').textContent   = 'Son güncelleme: ' + timeStr;
+
+    lastRefresh = Date.now();
+    btn.classList.remove('spinning');
+    startCountdown();
+  }
+
+  // ── TABS ────────────────────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('section-' + name).classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── PWA INSTALL ─────────────────────────────────────────────────────────────
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstall = e;
+    if (!sessionStorage.getItem('installDismissed')) {
+      document.getElementById('install-banner').classList.add('show');
+    }
+  });
+
+  function installApp() {
+    if (deferredInstall) {
+      deferredInstall.prompt();
+      deferredInstall.userChoice.then(c => {
+        if (c.outcome === 'accepted') dismissInstall();
+      });
+    }
+  }
+
+  function dismissInstall() {
+    document.getElementById('install-banner').classList.remove('show');
+    sessionStorage.setItem('installDismissed', '1');
+  }
+
+  // iOS install hint
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.navigator.standalone;
+  if (isIOS && !sessionStorage.getItem('iosHintDismissed')) {
+    setTimeout(() => {
+      document.getElementById('ios-hint').classList.add('show');
+    }, 3000);
+  }
+
+  document.getElementById('ios-hint').querySelector('.hint-close').addEventListener('click', () => {
+    sessionStorage.setItem('iosHintDismissed', '1');
+  });
+
+  // ── SERVICE WORKER ──────────────────────────────────────────────────────────
+  if ('serviceWorker' in navigator) {
+    const swCode = `
+      const CACHE = 'haber-v1';
+      const STATIC = ['./'];
+      self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC))));
+      self.addEventListener('fetch', e => {
+        if (e.request.url.includes('rss2json') || e.request.url.includes('fonts.goog')) return;
+        e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+      });
+    `;
+    const swBlob = new Blob([swCode], { type: 'application/javascript' });
+    const swUrl  = URL.createObjectURL(swBlob);
+    navigator.serviceWorker.register(swUrl).catch(() => {});
+  }
+
+  // ── TARİHTE BUGÜN ──────────────────────────────────────────────────────────
+  let historyLoaded = false;
+
+  function toggleHistory() {
+    const panel   = document.getElementById('today-in-history');
+    const toggle  = document.getElementById('historyToggle');
+    const chevron = document.getElementById('historyChevron');
+    const isOpen  = panel.classList.contains('expanded');
+
+    if (isOpen) {
+      panel.classList.remove('expanded');
+      toggle.classList.remove('open');
+    } else {
+      panel.classList.add('expanded');
+      toggle.classList.add('open');
+      if (!historyLoaded) fetchHistory();
+    }
+  }
+
+  async function fetchHistory() {
+    const now   = new Date();
+    const month = now.getMonth() + 1;
+    const day   = now.getDate();
+    const year  = now.getFullYear();
+
+    // Türkçe tarih etiketi
+    const months = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran',
+                    'Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+    document.getElementById('historyDateBadge').textContent = `${day} ${months[month-1]}`;
+
+    try {
+      // Önce Türkçe Wikipedia dene
+      const trUrl = `https://tr.wikipedia.org/api/rest_v1/feed/onthisday/events/${month}/${day}`;
+      let events = await fetchHistoryFrom(trUrl, 'tr');
+
+      // Yeterlice yoksa İngilizce Wikipedia'ya geç
+      if (events.length < 3) {
+        const enUrl = `https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/${month}/${day}`;
+        const enEvents = await fetchHistoryFrom(enUrl, 'en');
+        events = [...events, ...enEvents].slice(0, 8);
+      }
+
+      renderHistory(events, year);
+    } catch(e) {
+      console.warn('History fetch error:', e);
+      document.getElementById('history-skeleton').innerHTML =
+        '<p style="font-size:12px;color:var(--muted);padding:8px 0;">Tarihsel veriler yüklenemedi.</p>';
+    }
+  }
+
+  async function fetchHistoryFrom(url, lang) {
+    try {
+      const res  = await fetch(url);
+      const data = await res.json();
+      if (!data.events) return [];
+      // Rastgele 5 farklı yüzyıldan seç — çeşitlilik için
+      const shuffled = [...data.events].sort(() => Math.random() - 0.5);
+      return shuffled.slice(0, 6).map(e => ({
+        year: e.year,
+        text: e.text || (e.pages && e.pages[0] && e.pages[0].extract) || '',
+        lang,
+      }));
+    } catch(e) { return []; }
+  }
+
+  function renderHistory(events, currentYear) {
+    historyLoaded = true;
+    const skeleton = document.getElementById('history-skeleton');
+    const scroll   = document.getElementById('history-scroll');
+
+    if (!events.length) {
+      skeleton.innerHTML = '<p style="font-size:12px;color:var(--muted);padding:8px 0;">Bugün için tarihsel veri bulunamadı.</p>';
+      return;
+    }
+
+    skeleton.style.display = 'none';
+    scroll.style.display   = 'flex';
+
+    // Yıla göre sırala (eskiden yeniye)
+    events.sort((a, b) => a.year - b.year);
+
+    scroll.innerHTML = events.map(e => {
+      const ago = currentYear - e.year;
+      const agoText = ago > 0 ? `(${ago} yıl önce)` : '';
+      // Metni 120 karakterle sınırla
+      const shortText = e.text.length > 130 ? e.text.slice(0, 128) + '…' : e.text;
+      return `
+        <div class="history-card">
+          <div class="history-year">
+            ${e.year}
+            ${agoText ? `<span class="history-year-ago">${agoText}</span>` : ''}
+          </div>
+          <div class="history-text">${shortText}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ── INIT ────────────────────────────────────────────────────────────────────
+  // Tarihte bugün — tarih etiketini hemen göster
+  (() => {
+    const now = new Date();
+    const months = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran',
+                    'Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+    document.getElementById('historyDateBadge').textContent =
+      `${now.getDate()} ${months[now.getMonth()]}`;
+  })();
+
+  // Bildirim izni iste
+  updateNotifBtnUI();
+  if ('Notification' in window && Notification.permission === 'default') {
+    // Kullanıcı biraz etkileşime geçtikten sonra sor
+    setTimeout(() => requestNotifPermission().then(updateNotifBtnUI), 2500);
+  }
+
+  refreshAll();
+
+  // Saat başı otomatik yenile
+  setInterval(refreshAll, REFRESH_INTERVAL);
+
+  // Ayrıca tam saat başında da tetikle (xx:00:00)
+  function scheduleTopOfHour() {
+    const now = new Date();
+    const msToNextHour = (60 - now.getMinutes()) * 60000 - now.getSeconds() * 1000;
+    setTimeout(() => {
+      refreshAll();
+      scheduleTopOfHour(); // sonraki saati de planla
+    }, msToNextHour);
+  }
+  scheduleTopOfHour();
+</script>
+</body>
+</html>
