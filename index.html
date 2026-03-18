@@ -986,13 +986,14 @@
       const res  = await fetchTimeout(url);
       const data = await res.json();
       if (data.articles?.length) {
-        return data.articles.map(a => ({
+        const items = data.articles.map(a => ({
           title:   a.title       || '',
           desc:    a.description || '',
           link:    a.url         || '#',
           source:  a.source?.name || 'TR',
           pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
         })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
+        return translateItems(items); // Başlıkları Türkçeye çevir
       }
     } catch(e) { console.warn('GNews TR failed:', e.message); }
 
