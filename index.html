@@ -946,9 +946,10 @@
   const G_KEY    = 'test';
 
   function fetchTimeout(url, ms = 12000) {
-    const ctrl = new AbortController();
-    const id   = setTimeout(() => ctrl.abort(), ms);
-    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(id));
+    // AbortController sandbox'ta çalışmaz — Promise.race kullan
+    const fetchP   = fetch(url, { cache: 'no-cache' });
+    const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms));
+    return Promise.race([fetchP, timeoutP]);
   }
 
   // ── TÜRKÇE ÇEVİRİ ──────────────────────────────────────────────────────────
