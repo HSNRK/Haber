@@ -861,13 +861,10 @@
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
 
-  // GNews — Türkçe kaynaklar için (Hürriyet, NTV, Sözcü, Habertürk vb.)
   const GNEWS_KEY  = 'ca44fcb720f1d01ebb06e8c270ff4e37';
   const GNEWS_BASE = 'https://gnews.io/api/v4/top-headlines';
-
-  // Guardian — Dünya haberleri (BBC, NY Times, Reuters, AFP vb.)
-  const GUARDIAN = 'https://content.guardianapis.com';
-  const G_KEY    = 'test';
+  const GUARDIAN   = 'https://content.guardianapis.com';
+  const G_KEY      = 'test';
 
   // ── FETCH WITH TIMEOUT ───────────────────────────────────────────────────────
   function fetchTimeout(url, ms = 10000) {
@@ -898,29 +895,28 @@
     }));
   }
 
-  // ── 🇹🇷 TÜRKİYE — GNews API (gerçek Türkçe kaynaklar) ──────────────────────
+  // ── 🇹🇷 TÜRKİYE — GNews (gerçek Türkçe kaynaklar) ───────────────────────────
   async function fetchTurkeyNews() {
     try {
       const url  = `${GNEWS_BASE}?lang=tr&country=tr&max=20&apikey=${GNEWS_KEY}`;
       const res  = await fetchTimeout(url);
       const data = await res.json();
-
       if (data.articles?.length) {
+        // GNews gerçek kaynak URL'lerini döndürür — link doğrudur!
         return data.articles.map(a => ({
           title:   a.title       || '',
           desc:    a.description || '',
           link:    a.url         || '#',
           source:  a.source?.name || 'Türkiye',
           pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
-        })).filter(i => i.title && i.link);
+        })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
       }
-    } catch(e) {}
+    } catch(e) { console.warn('GNews TR failed:', e); }
 
-    // GNews başarısız → Guardian'dan Türkiye araması yap + çevir
-    console.warn('GNews failed, falling back to Guardian TR search');
+    // GNews başarısız → Guardian TR araması (doğru etiketle)
     const [a, b] = await Promise.all([
-      fetchGuardian('q=turkey+istanbul+erdogan&order-by=newest', 'Hürriyet / NTV').catch(() => []),
-      fetchGuardian('q=ankara+turkish+economy+OR+politics&order-by=newest', 'Sözcü / Habertürk').catch(() => []),
+      fetchGuardian('q=turkey+istanbul+erdogan&order-by=newest&page-size=10', 'The Guardian').catch(() => []),
+      fetchGuardian('q=ankara+turkish+economy&order-by=newest&page-size=10',  'The Guardian').catch(() => []),
     ]);
     const seen = new Set();
     const raw  = [...a, ...b].filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
@@ -928,18 +924,35 @@
     return translateItems(raw);
   }
 
-  // ── 🌍 DÜNYA — Guardian (BBC, Reuters, AFP vb.) + Çeviri ──────────────────────
+  // ── 🌍 DÜNYA — GNews İngilizce + Guardian (doğru etiketlerle) ─────────────────
   async function fetchWorldNews() {
-    const [a, b, c, d] = await Promise.all([
-      fetchGuardian('section=world&order-by=newest&page-size=8',             'BBC World').catch(() => []),
-      fetchGuardian('q=USA+OR+White+House+OR+Trump&section=world&order-by=newest&page-size=5', 'CNN International').catch(() => []),
-      fetchGuardian('q=middle+east+OR+israel+OR+gaza+OR+iran&order-by=newest&page-size=5',     'Al Jazeera').catch(() => []),
-      fetchGuardian('section=environment,science,technology&order-by=newest&page-size=5',      'NY Times').catch(() => []),
-    ]);
+    // GNews'den İngilizce dünya haberleri (gerçek BBC/CNN/Reuters linkleri)
+    let gnewsWorld = [];
+    try {
+      const res  = await fetchTimeout(`${GNEWS_BASE}?lang=en&topic=world&max=15&apikey=${GNEWS_KEY}`);
+      const data = await res.json();
+      if (data.articles?.length) {
+        gnewsWorld = data.articles.map(a => ({
+          title:   a.title       || '',
+          desc:    a.description || '',
+          link:    a.url         || '#',
+          source:  a.source?.name || 'Dünya',
+          pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
+        })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
+      }
+    } catch(e) { console.warn('GNews World failed:', e); }
+
+    // Guardian'dan ek haberler (doğru "The Guardian" etiketiyle)
+    const guardianWorld = await fetchGuardian(
+      'section=world&order-by=newest&page-size=15', 'The Guardian'
+    ).catch(() => []);
+
+    // İkisini birleştir, tekrarları çıkar
     const seen = new Set();
-    const raw  = [...a, ...b, ...c, ...d].filter(i => {
+    const raw  = [...gnewsWorld, ...guardianWorld].filter(i => {
       if (seen.has(i.link)) return false; seen.add(i.link); return true;
-    }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 20);
+    }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 25);
+
     return translateItems(raw);
   }
 
@@ -952,8 +965,8 @@
     return (data.response.results || []).map(a => ({
       title:   a.webTitle || '',
       desc:    a.fields?.trailText || '',
-      link:    a.webUrl  || '#',
-      source:  sourceName || 'The Guardian',
+      link:    a.webUrl  || '#',          // gerçek guardian.com linki
+      source:  sourceName || 'The Guardian', // doğru etiket
       pubDate: a.webPublicationDate ? new Date(a.webPublicationDate) : new Date(),
     })).filter(i => i.title);
   }
