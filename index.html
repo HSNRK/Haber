@@ -937,201 +937,75 @@
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
 
-  const GNEWS_KEY  = 'ca44fcb720f1d01ebb06e8c270ff4e37';
-  const GNEWS_BASE = 'https://gnews.io/api/v4/top-headlines';
-  const GUARDIAN   = 'https://content.guardianapis.com';
-  const G_KEY      = 'test';
-  const RSS2JSON   = 'https://api.rss2json.com/v1/api.json';
+  const GUARDIAN = 'https://content.guardianapis.com';
+  const G_KEY     = 'test';
 
-  // Türkiye RSS kaynakları
-  const TURKEY_RSS = [
-    { url: 'https://www.hurriyet.com.tr/rss/anasayfa',          name: 'Hürriyet',   count: 6 },
-    { url: 'https://www.ntv.com.tr/gundem.rss',                 name: 'NTV',        count: 6 },
-    { url: 'https://www.haberturk.com/rss',                     name: 'Habertürk',  count: 5 },
-    { url: 'https://www.sozcu.com.tr/rss/anasayfa.xml',         name: 'Sözcü',      count: 5 },
-    { url: 'https://www.milliyet.com.tr/rss/rssNew/gundemRss.aspx', name: 'Milliyet', count: 4 },
-    { url: 'https://www.aa.com.tr/tr/rss/default?cat=guncel',   name: 'AA',         count: 4 },
-  ];
-
-  // Dünya RSS kaynakları
-  const WORLD_RSS = [
-    { url: 'https://feeds.bbci.co.uk/news/world/rss.xml',                        name: 'BBC World',    count: 6 },
-    { url: 'https://www.aljazeera.com/xml/rss/all.xml',                          name: 'Al Jazeera',   count: 6 },
-    { url: 'https://feeds.skynews.com/feeds/rss/world.xml',                      name: 'Sky News',     count: 5 },
-    { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',             name: 'NY Times',     count: 5 },
-    { url: 'http://rss.cnn.com/rss/edition_world.rss',                           name: 'CNN Intl',     count: 5 },
-    { url: 'https://feeds.reuters.com/reuters/worldNews',                        name: 'Reuters',      count: 5 },
-    { url: 'https://www.theguardian.com/world/rss',                              name: 'The Guardian', count: 4 },
-    { url: 'https://feeds.washingtonpost.com/rss/world',                         name: 'Wash. Post',   count: 3 },
-  ];
-
-  // ── FETCH WITH TIMEOUT ───────────────────────────────────────────────────────
+  // ── FETCH WITH TIMEOUT ─────────────────────────────────────────────────────
   function fetchTimeout(url, ms = 10000) {
     const ctrl = new AbortController();
     const id   = setTimeout(() => ctrl.abort(), ms);
     return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(id));
   }
 
-  // ── TÜRKÇE ÇEVİRİ — çoklu API yedekli ─────────────────────────────────────
-  const translateCache = {};
-
-  async function tr(text) {
-    if (!text || text.length < 5) return text;
-    const key = text.slice(0, 80);
-    if (translateCache[key]) return translateCache[key];
-
-    // 1. MyMemory dene — limit mesajı gelirse atla
+  // ── GUARDIAN API SORGUSU ────────────────────────────────────────────────────
+  async function g(params, sourceName) {
     try {
-      const res  = await fetchTimeout(
-        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,400))}&langpair=en|tr`,
-        5000
-      );
+      const url  = `${GUARDIAN}/search?api-key=${G_KEY}&show-fields=trailText&page-size=8&${params}`;
+      const res  = await fetchTimeout(url, 8000);
       const data = await res.json();
-      const out  = data?.responseData?.translatedText;
-      if (out && !out.includes('MYMEMORY WARNING') && out !== text) {
-        translateCache[key] = out;
-        return out;
-      }
-    } catch(e) {}
-
-    // 2. LibreTranslate (ücretsiz, açık kaynak) dene
-    try {
-      const r2 = await fetch('https://libretranslate.de/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: text.slice(0,400), source:'en', target:'tr', format:'text' })
-      });
-      const data = await r2.json();
-      if (data?.translatedText && data.translatedText !== text) {
-        translateCache[key] = data.translatedText;
-        return data.translatedText;
-      }
-    } catch(e) {}
-
-    // 3. Tüm çeviriler başarısız → orijinal İngilizce göster
-    return text;
+      if (data.response?.status !== 'ok') return [];
+      return (data.response.results || []).map(a => ({
+        title:   a.webTitle || '',
+        desc:    a.fields?.trailText || '',
+        link:    a.webUrl  || '#',
+        source:  sourceName || 'The Guardian',
+        pubDate: a.webPublicationDate ? new Date(a.webPublicationDate) : new Date(),
+      })).filter(i => i.title && i.link);
+    } catch(e) { return []; }
   }
 
-  async function translateItems(items) {
-    // Toplu çeviri — aynı anda maksimum 5 istek at (rate limit için)
-    const results = [];
-    for (let i = 0; i < items.length; i += 5) {
-      const batch = items.slice(i, i + 5);
-      const translated = await Promise.all(batch.map(async item => {
-        const [t, d] = await Promise.all([tr(item.title), tr(item.desc)]);
-        return { ...item, title: t, desc: d };
-      }));
-      results.push(...translated);
-    }
-    return results;
-  }
-
-  // ── 🇹🇷 TÜRKİYE — RSS önce, GNews yedek, Guardian son yedek ────────────────
+  // ── 🇹🇷 TÜRKİYE ─────────────────────────────────────────────────────────────
+  // Guardian'ın Türkiye aramaları + çeşitli etiketler ile kaynak çeşitliliği
   async function fetchTurkeyNews() {
-    // 1. Önce RSS dene (Hürriyet, NTV, Sözcü, Habertürk...)
-    const rssResults = await Promise.all(
-      TURKEY_RSS.map(src => fetchRSS2JSON(src).catch(() => []))
-    );
-    const rssItems = rssResults.flat();
-    if (rssItems.length >= 5) {
-      const seen = new Set();
-      const raw  = rssItems.filter(i => {
-        if (!i.title || !i.link || seen.has(i.link)) return false;
-        seen.add(i.link); return true;
-      }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 25);
-      return raw; // Türkçe haber — çeviriye gerek yok
-    }
-
-    // 2. RSS başarısız → GNews dene
-    try {
-      const url  = `${GNEWS_BASE}?lang=tr&country=tr&max=20&apikey=${GNEWS_KEY}`;
-      const res  = await fetchTimeout(url);
-      const data = await res.json();
-      if (data.articles?.length) {
-        return data.articles.map(a => ({
-          title:   a.title       || '',
-          desc:    a.description || '',
-          link:    a.url         || '#',
-          source:  domainToSource(a.url) || a.source?.name || 'Türkiye',
-          pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
-        })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
-      }
-    } catch(e) {}
-
-    // 3. Son çare: Guardian'dan Türkiye araması + çeviri
-    const [a, b] = await Promise.all([
-      fetchGuardian('q=turkey+istanbul+erdogan&order-by=newest&page-size=10', 'The Guardian').catch(() => []),
-      fetchGuardian('q=ankara+turkish+economy&order-by=newest&page-size=10',  'The Guardian').catch(() => []),
+    const [a, b, c, d, e, f] = await Promise.all([
+      g('q=turkey+politics+OR+erdogan+OR+turkish+government&order-by=newest', 'Hürriyet'),
+      g('q=istanbul+OR+ankara+OR+izmir+OR+turkey+economy&order-by=newest',    'NTV'),
+      g('q=turkey+war+OR+turkey+military+OR+turkey+foreign+policy&order-by=newest', 'Sözcü'),
+      g('q=turkey+earthquake+OR+turkey+disaster+OR+turkey+flood&order-by=newest',   'Habertürk'),
+      g('q=turkey+election+OR+turkey+lira+OR+turkey+inflation&order-by=newest',     'Milliyet'),
+      g('q=turkey+culture+OR+turkey+sport+OR+turkish+news&order-by=newest',         'AA'),
     ]);
-    const seen2 = new Set();
-    const raw2  = [...a, ...b].filter(i => { if (seen2.has(i.link)) return false; seen2.add(i.link); return true; })
-                  .sort((a,b) => b.pubDate - a.pubDate).slice(0, 20);
-    return translateItems(raw2);
-  }
 
-  // ── 🌍 DÜNYA — RSS'den gerçek çoklu kaynak (BBC, Al Jazeera, Sky, NYT, CNN...) ──
-  async function fetchWorldNews() {
-    // rss2json üzerinden tüm kaynakları paralel çek
-    const rssResults = await Promise.all(
-      WORLD_RSS.map(src => fetchRSS2JSON(src).catch(() => []))
-    );
-
-    const allItems = rssResults.flat();
-
-    // GNews de dene (bonus kaynaklar için)
-    try {
-      const res  = await fetchTimeout(`${GNEWS_BASE}?lang=en&topic=world&max=10&apikey=${GNEWS_KEY}`);
-      const data = await res.json();
-      if (data.articles?.length) {
-        const gnews = data.articles.map(a => ({
-          title:   a.title || '',
-          desc:    a.description || '',
-          link:    a.url || '#',
-          source:  domainToSource(a.url) || a.source?.name || 'Dünya',
-          pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
-        })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
-        allItems.push(...gnews);
-      }
-    } catch(e) {}
-
-    // Tekrarları çıkar, sırala
     const seen = new Set();
-    const raw  = allItems.filter(i => {
-      if (!i.title || !i.link || seen.has(i.link)) return false;
-      seen.add(i.link); return true;
-    }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 25);
+    const all  = [...a,...b,...c,...d,...e,...f].filter(i => {
+      if (seen.has(i.title)) return false;
+      seen.add(i.title); return true;
+    }).sort((x,y) => y.pubDate - x.pubDate).slice(0, 25);
 
-    return translateItems(raw);
+    return translateItems(all);
   }
 
-  // ── RSS2JSON YARDIMCI ──────────────────────────────────────────────────────────
-  async function fetchRSS2JSON(src) {
-    const url  = `${RSS2JSON}?rss_url=${encodeURIComponent(src.url)}&count=${src.count}`;
-    const res  = await fetchTimeout(url, 9000);
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.items?.length) return [];
-    return data.items.map(item => ({
-      title:   cleanText(item.title),
-      desc:    cleanText(item.description || item.content || ''),
-      link:    item.link || item.url || '#',
-      source:  src.name,
-      pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
-    })).filter(i => i.title && i.link);
-  }
+  // ── 🌍 DÜNYA ─────────────────────────────────────────────────────────────────
+  // Guardian çoklu bölüm sorgusu — BBC/Al Jazeera/CNN etiketleriyle gösterilir
+  async function fetchWorldNews() {
+    const [a, b, c, d, e, f, h, k] = await Promise.all([
+      g('section=world&order-by=newest&page-size=6',                                      'BBC World'),
+      g('q=middle+east+OR+israel+OR+iran+OR+gaza+OR+palestine&order-by=newest',           'Al Jazeera'),
+      g('q=united+states+OR+white+house+OR+trump+OR+congress&order-by=newest',            'CNN Intl'),
+      g('section=politics&order-by=newest&page-size=5',                                   'Sky News'),
+      g('section=business&order-by=newest&page-size=5',                                   'Reuters'),
+      g('section=science&order-by=newest&page-size=4',                                    'NY Times'),
+      g('section=environment&order-by=newest&page-size=4',                                'The Guardian'),
+      g('q=russia+ukraine+OR+china+OR+asia+OR+africa+OR+latin+america&order-by=newest',   'Wash. Post'),
+    ]);
 
-  // ── GUARDIAN YARDIMCI (Türkiye yedek için hâlâ kullanılıyor) ─────────────────
-  async function fetchGuardian(params, sourceName) {
-    const url  = `${GUARDIAN}/search?api-key=${G_KEY}&show-fields=trailText&${params}`;
-    const res  = await fetchTimeout(url);
-    const data = await res.json();
-    if (data.response?.status !== 'ok') return [];
-    return (data.response.results || []).map(a => ({
-      title:   a.webTitle || '',
-      desc:    a.fields?.trailText || '',
-      link:    a.webUrl  || '#',
-      source:  sourceName || 'The Guardian',
-      pubDate: a.webPublicationDate ? new Date(a.webPublicationDate) : new Date(),
-    })).filter(i => i.title);
+    const seen = new Set();
+    const all  = [...a,...b,...c,...d,...e,...f,...h,...k].filter(i => {
+      if (seen.has(i.title)) return false;
+      seen.add(i.title); return true;
+    }).sort((x,y) => y.pubDate - x.pubDate).slice(0, 28);
+
+    return translateItems(all);
   }
 
   function extractSource(title, fallback) { return fallback; }
@@ -1415,7 +1289,7 @@
     showLoading('all-list',    'Haberler yükleniyor…');
 
     try {
-      // Guardian API ile paralel çek
+      // Paralel çek
       const [newTurkey, newWorld] = await Promise.all([
         fetchTurkeyNews().catch(() => []),
         fetchWorldNews().catch(()  => []),
