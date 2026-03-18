@@ -637,6 +637,96 @@
       animation: shimmer 1.5s ease-in-out infinite;
     }
 
+    /* ── SAATLİ MAARİF TAKVİMİ ── */
+    .takvim-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 13px 15px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .takvim-card:hover { border-color: #444; }
+    .takvim-card.active-event {
+      border-left: 3px solid var(--gold);
+      background: linear-gradient(90deg,rgba(244,162,97,0.08) 0%,transparent 60%);
+    }
+    .takvim-card.today-event {
+      border-left: 3px solid var(--red);
+      background: linear-gradient(90deg,rgba(230,57,70,0.08) 0%,transparent 60%);
+    }
+    .takvim-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .takvim-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+    .takvim-emoji { font-size: 18px; flex-shrink: 0; }
+    .takvim-name {
+      font-family: 'Libre Baskerville', serif;
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.3;
+    }
+    .takvim-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .badge-active { background: var(--red); color: #fff; animation: blink 1.5s ease-in-out infinite; }
+    .badge-soon   { background: var(--gold); color: #000; }
+    .badge-past   { background: var(--surface2); color: var(--muted); }
+    .takvim-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .takvim-days-left {
+      font-weight: 600;
+      color: var(--gold);
+    }
+    .takvim-desc {
+      display: none;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      line-height: 1.7;
+      color: #ccc;
+    }
+    .takvim-desc.open { display: block; }
+    .takvim-desc blockquote {
+      font-style: italic;
+      border-left: 2px solid var(--gold);
+      padding-left: 10px;
+      margin: 8px 0;
+      color: var(--gold);
+      font-size: 11px;
+    }
+    .takvim-chevron { font-size: 10px; color: var(--muted); transition: transform 0.3s; }
+    .takvim-card.open .takvim-chevron { transform: rotate(180deg); }
+    .takvim-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      padding: 10px 0 6px;
+    }
+
     /* ── LOADING MESSAGE ── */
     .loading-msg {
       text-align: center;
@@ -749,6 +839,27 @@
       <div class="history-skel-card"></div>
     </div>
     <div class="history-scroll" id="history-scroll" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- SAATLİ MAARİF TAKVİMİ TOGGLE -->
+
+<button class="history-toggle" id="takvimiToggle" onclick="toggleTakvim()">
+  <div class="history-toggle-inner">
+    <div class="history-toggle-left">
+      <span class="hourglass">🕰️</span>
+      SAATLİ MAARİF TAKVİMİ
+      <span class="history-date-badge" id="takvimiActiveBadge" style="display:none;background:var(--red);color:#fff;"></span>
+    </div>
+    <span class="history-chevron" id="takvimiChevron">▼</span>
+  </div>
+</button>
+
+<!-- TAKVİM PANELİ -->
+
+<div id="takvim-panel" style="background:var(--bg);border-bottom:1px solid var(--border);overflow:hidden;max-height:0;transition:max-height 0.4s ease,padding 0.3s ease;">
+  <div style="max-width:700px;margin:0 auto;padding:0 16px 14px;">
+    <div id="takvim-list"></div>
   </div>
 </div>
 
@@ -1406,6 +1517,343 @@
         </div>
       `;
     }).join('');
+  }
+
+  // ── SAATLİ MAARİF TAKVİMİ ────────────────────────────────────────────────────
+
+  // Yardımcı: Gregoryen tarihe göre gün numarası (yılın başından itibaren, artık yıl dahil)
+  function dayOfYear(m, d, y) {
+    const date  = new Date(y, m-1, d);
+    const start = new Date(y, 0, 0);
+    return Math.floor((date - start) / 86400000);
+  }
+
+  // Belirli bir tarih, [startM,startD]–[endM,endD] aralığında mı?
+  function inRange(now, sM, sD, eM, eD) {
+    const y   = now.getFullYear();
+    const cur = dayOfYear(now.getMonth()+1, now.getDate(), y);
+    let   s   = dayOfYear(sM, sD, y);
+    let   e   = dayOfYear(eM, eD, y);
+    if (s <= e) return cur >= s && cur <= e;
+    // Yıl sonu geçişi (örn. Aralık→Ocak)
+    return cur >= s || cur <= e;
+  }
+
+  // Kalan gün
+  function daysLeft(now, eM, eD) {
+    const y    = now.getFullYear();
+    let   end  = new Date(y, eM-1, eD);
+    if (end < now) end = new Date(y+1, eM-1, eD);
+    return Math.ceil((end - now) / 86400000);
+  }
+
+  // Ne kadar sonra başlıyor?
+  function daysUntil(now, sM, sD) {
+    const y    = now.getFullYear();
+    let   start = new Date(y, sM-1, sD);
+    if (start < now) start = new Date(y+1, sM-1, sD);
+    return Math.ceil((start - now) / 86400000);
+  }
+
+  // ── TAKVİM VERİTABANI ───────────────────────────────────────────────────────
+  // sM/sD: başlangıç ayı/günü  |  eM/eD: bitiş ayı/günü
+  const TAKVIM = [
+
+    // ══ KIŞ ══════════════════════════════════════════════════════════════════
+    {
+      name: 'Zemheri — Amansız Kırklar',
+      emoji: '🥶',
+      sM:1, sD:8,  eM:2, eD:17,
+      category: 'kış',
+      desc: `Zemheri, yılın en soğuk ve en amansız kırk günüdür. 8 Ocak'ta başlar, 17 Şubat'ta sona erer. Halk takviminde "Kırklar" ya da "Kırklı" olarak da bilinir.
+<blockquote>"Zemherinin kırkı, taşı yerinden oynatır."</blockquote>
+Bu dönemde dondurucu soğuklar, tipi ve buz fırtınaları yaşanır. Çobanlara ve gezginlere en zorlu dönem kabul edilmiştir. Zemheri'nin ilk yarısı "Büyük Kırklar", ikinci yarısı "Küçük Kırklar" olarak da anılır.`,
+    },
+
+    {
+      name: 'Şubat Bozumu (Soğukların Yumuşaması)',
+      emoji: '🌬️',
+      sM:2, sD:18,  eM:2, eD:28,
+      category: 'kış',
+      desc: `Zemheri'nin ardından gelen bu dönemde soğuklar görece yumuşar; ancak son don geceleri yaşanabilir. Halk arasında "Şubat bitti, kış bitti" denseydi de "Şubat sonu, kar sonu değil" denir.
+<blockquote>"Şubat bozumu, kışı yozumu."</blockquote>
+Karların erimeye başladığı, yolların açıldığı bu dönemde çiftçiler tarlaya çıkma hazırlığı yapar.`,
+    },
+
+    {
+      name: 'Kocakarı Soğukları — Beldir Aciz',
+      emoji: '👵❄️',
+      sM:3, sD:11,  eM:3, eD:17,
+      category: 'kış',
+      desc: `Baba hesabına göre (Rumi takvim) Şubat'ın 26. ile Mart'ın 4. günleri arasına denk gelen, Gregoryen takvimde 11–17 Mart arası süren 7 günlük sayılı fırtınadır.
+<blockquote>"Beldir aciz, yer gök taciz."</blockquote>
+<blockquote>"Üçü şubatta, dördü martta."</blockquote>
+Efsaneye göre yaşlı bir kadın (kocakarı), kışın geçip gittiğini sanarak dışarı çıkmış; kış da bunun üzerine son kez küplere binmiştir. Bu yüzden bu fırtınanın "son öfkesi" olduğuna inanılır. Ani soğuk, don ve kar yağışı beklenir.`,
+    },
+
+    {
+      name: 'Mart Dokuzu — Sayılı Soğuk',
+      emoji: '🌡️',
+      sM:3, sD:9,  eM:3, eD:9,
+      category: 'kış',
+      desc: `Halk takviminde Martın 9'u, kışın son şiddetli soğuk günü olarak bilinir. Tek başına özel bir anlam taşır.
+<blockquote>"Mart dokuzunu geçiremeyen koyun olmaz."</blockquote>
+<blockquote>"Mart geldi mi, acemi çoban bilir mi ne var."</blockquote>
+Bu gün özellikle hayvancılıkla uğraşanlar için kritik kabul edilmiştir. Barınakları zayıf hayvanların bu günü geçiremediğine inanılır.`,
+    },
+
+    // ══ İLKBAHAR ═════════════════════════════════════════════════════════════
+    {
+      name: 'İlkbahar Ekinoksu — Nevruz',
+      emoji: '🌸',
+      sM:3, sD:20,  eM:3, eD:21,
+      category: 'astronomi',
+      desc: `Gündüz ile gecenin eşitlendiği, güneşin Koç burcuna girdiği andır. Türk ve İran kültüründe "Nevruz" (Yeni Gün) olarak kutlanır.
+<blockquote>"Nevruz geldi, gam gitti."</blockquote>
+Birçok Orta Asya ve Orta Doğu halkı için yeni yılın başlangıcıdır. Sofra kurulur, yedi S geleneği icra edilir, ateş yakılarak etrafında dönülür.`,
+    },
+
+    {
+      name: 'Çocuk Bayramı — 23 Nisan',
+      emoji: '🎈',
+      sM:4, sD:23,  eM:4, eD:23,
+      category: 'bayram',
+      desc: `23 Nisan 1920'de Türkiye Büyük Millet Meclisi'nin açılışının yıldönümüdür. Mustafa Kemal Atatürk tarafından dünyada ilk kez çocuklara armağan edilen bu bayram, ulusal egemenliğin simgesidir.
+<blockquote>"Egemenlik kayıtsız şartsız milletindir."</blockquote>
+Dünyada çocuklara adanmış tek ulusal bayramdır. Her yıl yurt içi ve yurt dışından çocuklar Ankara'da buluşur.`,
+    },
+
+    {
+      name: 'Hıdrellez Fırtınası',
+      emoji: '⛈️',
+      sM:4, sD:29,  eM:5, eD:3,
+      category: 'meteoroloji',
+      desc: `Hıdrellez öncesinde, baharın tam yerleşmediği bu geçiş döneminde ani fırtınalar, sağanak yağmurlar ve dolu beklenir.
+<blockquote>"Hıdrellez fırtınası, ne gelen ne giden bırakır."</blockquote>
+Çiftçiler ekim yapmaları için bu fırtınaların geçmesini bekler. Ege ve Marmara kıyılarında denizcilik açısından tehlikeli sayılır.`,
+    },
+
+    {
+      name: 'Hıdrellez — Hızır ile İlyas Günü',
+      emoji: '🌿',
+      sM:5, sD:5,  eM:5, eD:6,
+      category: 'gelenek',
+      desc: `Hızır (Hıdır) ile İlyas'ın buluştuğuna inanılan güneye göre 5–6 Mayıs'a denk gelen bahar şenliğidir. Hem Türk hem de Balkan, Ortadoğu ve Orta Asya kültürlerinde kutlanır.
+<blockquote>"Hıdrellezden Kasıma yaz, Kasımdan Hıdrelleze kış."</blockquote>
+Yılın ikiye bölündüğü iki önemli günden biridir (diğeri Kasım). Gece dilek kağıtları gül dalına asılır, sabah çiy suyla yıkanılır; bereket, sağlık ve aşk için ritüeller yapılır.`,
+    },
+
+    {
+      name: 'Gençlik ve Spor Bayramı — 19 Mayıs',
+      emoji: '🏃',
+      sM:5, sD:19,  eM:5, eD:19,
+      category: 'bayram',
+      desc: `1919'da Mustafa Kemal Atatürk'ün Samsun'a çıkışının ve Kurtuluş Savaşı'nın başlangıcının yıldönümüdür. Atatürk bu günü gençliğe armağan etmiştir.
+<blockquote>"Ey Türk gençliği! Birinci vazifen; Türk istiklâlini, Türk Cumhuriyetini, ilelebet muhafaza ve müdafaa etmektir."</blockquote>`,
+    },
+
+    // ══ YAZ ══════════════════════════════════════════════════════════════════
+    {
+      name: 'Hamsin — Elli Günlük Sıcak Rüzgârlar',
+      emoji: '🔥',
+      sM:5, sD:25,  eM:7, eD:13,
+      category: 'meteoroloji',
+      desc: `Hamsin, Arapça'da "elli" anlamına gelir. Doğu Akdeniz ve Orta Doğu'da ilkbahar sonundan yaz ortasına kadar esen kuru, sıcak ve tozlu güney rüzgârlarının genel adıdır.
+<blockquote>"Hamsin esti mi, kuyu suyu bile ısınır."</blockquote>
+Özellikle Anadolu'nun güney ve iç bölgelerinde sıcaklığı ani artışlara neden olur. Tarlaları ve bahçeleri kurutur; gözleri yakar, solunum güçlüğüne yol açar.`,
+    },
+
+    {
+      name: 'Yaz Gündönümü — Yengeç Dönencesi',
+      emoji: '☀️',
+      sM:6, sD:21,  eM:6, eD:21,
+      category: 'astronomi',
+      desc: `Yılın en uzun günü; güneşin Yengeç burcuna girdiği ve kuzeyde Dönence'ye en yakın olduğu andır. Gündüz en uzun, gece en kısadır.
+<blockquote>"Yaz dönencesinden sonra günler kısalmaya, kışa doğru yol almaya başlar."</blockquote>
+Bu günü izleyen dönem pek çok kültürde "Kavurucu Yaz" olarak adlandırılır.`,
+    },
+
+    {
+      name: 'Zafer Bayramı — 30 Ağustos',
+      emoji: '🏆',
+      sM:8, sD:30,  eM:8, eD:30,
+      category: 'bayram',
+      desc: `1922'de Başkomutan Meydan Muharebesi'nin kazanıldığı ve Kurtuluş Savaşı'nın fiilen sona erdiği günün yıldönümüdür.
+<blockquote>"Ordular! İlk hedefiniz Akdeniz'dir. İleri!"</blockquote>
+Mustafa Kemal Atatürk'ün komutasında Türk ordusu, işgal kuvvetlerini bozguna uğratmıştır.`,
+    },
+
+    // ══ SONBAHAR ════════════════════════════════════════════════════════════
+    {
+      name: 'Sonbahar Ekinoksu — Güz Başı',
+      emoji: '🍂',
+      sM:9, sD:22,  eM:9, eD:23,
+      category: 'astronomi',
+      desc: `Gündüz ile gecenin tekrar eşitlendiği, güneşin Terazi burcuna girdiği gündür. Sonbaharın astronomik başlangıcıdır.
+<blockquote>"Sonbahar ekinoksunu geçince, kışın hazırlığını yap."</blockquote>
+Bu günden itibaren geceler gündüzlerden uzun olmaya başlar.`,
+    },
+
+    {
+      name: 'Kasım — Yılın İkinci Yarısı',
+      emoji: '🍁',
+      sM:11, sD:8,  eM:11, eD:8,
+      category: 'gelenek',
+      desc: `Hıdrellez'le birlikte yılı ikiye bölen diğer önemli gündür. Bu günle birlikte "kış takvimi" başlar.
+<blockquote>"Hıdrellezden Kasıma yaz, Kasımdan Hıdrelleze kış."</blockquote>
+Otlaklar kapanır, hayvanlar ahıra çekilir. Kışlık hazırlıkların tamamlanması gerekir.`,
+    },
+
+    {
+      name: 'Cumhuriyet Bayramı — 29 Ekim',
+      emoji: '🇹🇷',
+      sM:10, sD:29,  eM:10, eD:29,
+      category: 'bayram',
+      desc: `1923'te Türkiye Cumhuriyeti'nin ilânının yıl dönümüdür. Mustafa Kemal Atatürk Cumhurbaşkanı seçilmiş, İsmet İnönü de ilk Başbakan olmuştur.
+<blockquote>"Ne mutlu Türküm diyene!"</blockquote>
+Resmi törenler, fener alayları ve havai fişeklerle kutlanan en büyük ulusal bayramdır.`,
+    },
+
+    // ══ KIŞ BAŞLANGICI ════════════════════════════════════════════════════
+    {
+      name: 'Kış Gündönümü — Oğlak Dönencesi',
+      emoji: '🌑',
+      sM:12, sD:21,  eM:12, eD:22,
+      category: 'astronomi',
+      desc: `Yılın en kısa günü; güneşin Oğlak burcuna girdiği ve güneyde Dönence'ye en yakın olduğu andır. Gündüz en kısa, gece en uzundur.
+<blockquote>"Oğlak dönencesinden sonra günler uzamaya başlar."</blockquote>
+Bu günden itibaren kış resmî olarak başlamış sayılır. Pek çok kültürde "ışığın yeniden doğuşu" olarak kutlanır.`,
+    },
+
+    // ══ RAMAZAN 2026 ══════════════════════════════════════════════════════
+    {
+      name: 'Ramazan Ayı 2026',
+      emoji: '🌙',
+      sM:2, sD:18,  eM:3, eD:19,
+      category: 'dini',
+      desc: `2026 yılında Ramazan ayı yaklaşık 18 Şubat'ta başlayıp 19 Mart'ta sona ermesi beklenmektedir. (Hicrî takvim ay görüşüne göre kesin tarih değişebilir.)
+<blockquote>"Ramazan geldi hoş geldi, safâlar getirdi."</blockquote>
+İslam'ın beş şartından biri olan oruç; sabah ezanından akşam ezanına kadar yeme, içme ve diğer yasaklardan kaçınmayı kapsar. İftar sofraları, teravihler ve kandil geceleriyle doludur.`,
+    },
+
+    {
+      name: 'Ramazan Bayramı 2026 — Şeker Bayramı',
+      emoji: '🎊',
+      sM:3, sD:20,  eM:3, eD:22,
+      category: 'dini',
+      desc: `Ramazan ayının bitişiyle kutlanan üç günlük bayramdır. 2026 yılında yaklaşık 20–22 Mart tarihleri arasına denk gelmesi beklenmektedir.
+<blockquote>"Bayramlar birliğin, dirliğin günleridir."</blockquote>
+Bayram namazı, ziyaretler, çocuklara harçlık ve tatlı ikramı geleneğiyle kutlanır.`,
+    },
+
+    {
+      name: 'Kurban Bayramı 2026',
+      emoji: '🐑',
+      sM:5, sD:27,  eM:5, eD:30,
+      category: 'dini',
+      desc: `İbrahim Peygamber'in oğlunu kurban etme isteğine inancının sembolü olarak Hz. İsmail'in yerine kurban kesildiğine inanılan günü anmak için kutlanan dört günlük bayramdır. 2026 yılında yaklaşık 27–30 Mayıs tarihleri beklenmektedir.
+<blockquote>"Kurban olsun başına, bak ne güzel yaratmış Allah'ım."</blockquote>
+Kurban eti üçe bölünür: biri aile için, biri komşulara, biri fakirlere dağıtılır.`,
+    },
+  ];
+
+  // ── TAKVİM TOGGLE ────────────────────────────────────────────────────────────
+  let takvimiOpen = false;
+  let takvimiRendered = false;
+
+  function toggleTakvim() {
+    const panel   = document.getElementById('takvim-panel');
+    const chevron = document.getElementById('takvimiChevron');
+    takvimiOpen   = !takvimiOpen;
+    panel.style.maxHeight = takvimiOpen ? '2000px' : '0';
+    panel.style.padding   = takvimiOpen ? '14px 16px' : '0 16px';
+    chevron.style.transform = takvimiOpen ? 'rotate(180deg)' : '';
+    if (takvimiOpen && !takvimiRendered) {
+      renderTakvim();
+      takvimiRendered = true;
+    }
+  }
+
+  function renderTakvim() {
+    const now      = new Date();
+    const container= document.getElementById('takvim-list');
+    const todayDoy = dayOfYear(now.getMonth()+1, now.getDate(), now.getFullYear());
+
+    // Her etkinliğe durum bilgisi ekle
+    const enriched = TAKVIM.map(ev => {
+      const active  = inRange(now, ev.sM, ev.sD, ev.eM, ev.eD);
+      const until   = daysUntil(now, ev.sM, ev.sD);
+      const left    = active ? daysLeft(now, ev.eM, ev.eD) : 0;
+      const soon    = !active && until <= 14;
+      return { ...ev, active, soon, until, left };
+    });
+
+    // Sırala: aktif → yakın → yaklaşan → geçmiş
+    const sorted = [
+      ...enriched.filter(e => e.active),
+      ...enriched.filter(e => !e.active && e.soon).sort((a,b) => a.until - b.until),
+      ...enriched.filter(e => !e.active && !e.soon).sort((a,b) => a.until - b.until),
+    ];
+
+    // Aktif olanlar için header badge
+    const activeCount = enriched.filter(e => e.active).length;
+    const badge = document.getElementById('takvimiActiveBadge');
+    if (activeCount > 0) {
+      badge.textContent = activeCount + ' aktif dönem';
+      badge.style.display = 'inline-block';
+    }
+
+    const catLabels = { kış:'❄️ Kış', meteoroloji:'🌦️ Hava & Mevsim', astronomi:'🔭 Astronomi', gelenek:'🌿 Gelenek', bayram:'🎉 Bayramlar', dini:'🌙 Dinî Günler' };
+    let lastCat = '';
+
+    container.innerHTML = sorted.map((ev, idx) => {
+      let badge = '', cardClass = '';
+      if (ev.active) {
+        const totalDays = Math.round((new Date(now.getFullYear(), ev.eM-1, ev.eD) - new Date(now.getFullYear(), ev.sM-1, ev.sD)) / 86400000) + 1;
+        badge     = `<span class="takvim-badge badge-active">🔴 DEVAM EDİYOR · ${ev.left} gün kaldı</span>`;
+        cardClass = 'active-event';
+      } else if (ev.soon) {
+        badge     = `<span class="takvim-badge badge-soon">${ev.until} gün sonra</span>`;
+      } else {
+        badge     = `<span class="takvim-badge badge-past">${ev.until} gün sonra</span>`;
+      }
+
+      const catLabel = lastCat !== ev.category
+        ? `<div class="takvim-section-title">${catLabels[ev.category] || ev.category}</div>`
+        : '';
+      lastCat = ev.category;
+
+      // Tarih aralığı
+      const months = ['','Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+      const dateRange = ev.sM === ev.eM && ev.sD === ev.eD
+        ? `${ev.sD} ${months[ev.sM]}`
+        : `${ev.sD} ${months[ev.sM]} – ${ev.eD} ${months[ev.eM]}`;
+
+      return `
+        ${catLabel}
+        <div class="takvim-card ${cardClass}" id="tc-${idx}" onclick="toggleTakCard(${idx})">
+          <div class="takvim-header">
+            <div class="takvim-title-row">
+              <span class="takvim-emoji">${ev.emoji}</span>
+              <span class="takvim-name">${ev.name}</span>
+            </div>
+            <span class="takvim-chevron">▼</span>
+          </div>
+          <div class="takvim-meta">
+            <span>📅 ${dateRange}</span>
+            ${badge}
+          </div>
+          <div class="takvim-desc" id="td-${idx}">${ev.desc.replace(/\n/g,'<br>').replace(/<blockquote>(.*?)<\/blockquote>/gs,'<blockquote>$1</blockquote>')}</div>
+        </div>`;
+    }).join('');
+  }
+
+  function toggleTakCard(idx) {
+    const card = document.getElementById(`tc-${idx}`);
+    const desc = document.getElementById(`td-${idx}`);
+    const open = desc.classList.contains('open');
+    desc.classList.toggle('open', !open);
+    card.classList.toggle('open', !open);
   }
 
   // ── INIT ────────────────────────────────────────────────────────────────────
