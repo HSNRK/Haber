@@ -1029,56 +1029,69 @@
     }, 1000);
   }
 
-  // ── FETCH FEED — çoklu proxy yedekli ────────────────────────────────────────
-  const PROXIES = [
-    url => `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&count=15`,
-    url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  ];
+  // ── FETCH FEED — paralel + timeout ──────────────────────────────────────────
 
-  async function fetchFeed(feed) {
-    // 1. rss2json.com dene
-    try {
-      const url  = PROXIES[0](feed.url);
-      const res  = await fetch(url, { cache: 'no-cache' });
-      const data = await res.json();
-      if (data.status === 'ok' && data.items && data.items.length) {
-        return data.items.slice(0, feed.count).map(item => ({
-          title:   cleanText(item.title),
-          desc:    cleanText(item.description || item.content || ''),
-          link:    item.link,
-          source:  feed.name,
-          pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
-        }));
-      }
-    } catch(e) {}
-
-    // 2. allorigins (ham XML) dene
-    try {
-      const url  = PROXIES[1](feed.url);
-      const res  = await fetch(url, { cache: 'no-cache' });
-      const data = await res.json();
-      const xml  = data.contents;
-      if (xml) return parseRSS(xml, feed);
-    } catch(e) {}
-
-    // 3. corsproxy.io dene
-    try {
-      const url = PROXIES[2](feed.url);
-      const res = await fetch(url, { cache: 'no-cache' });
-      const xml = await res.text();
-      if (xml) return parseRSS(xml, feed);
-    } catch(e) {}
-
-    return [];
+  function fetchWithTimeout(url, ms = 8000) {
+    return Promise.race([
+      fetch(url, { cache: 'no-cache' }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))
+    ]);
   }
 
-  // Ham RSS/XML'i ayrıştır
+  async function fetchFeed(feed) {
+    const encoded = encodeURIComponent(feed.url);
+
+    // Tüm proxy'leri AYNI ANDA başlat — hangisi önce dönerse onu kullan
+    const attempts = [
+
+      // 1. rss2json
+      fetchWithTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${encoded}&count=${feed.count}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status !== 'ok' || !data.items?.length) throw new Error('empty');
+          return data.items.slice(0, feed.count).map(item => ({
+            title:   cleanText(item.title),
+            desc:    cleanText(item.description || item.content || ''),
+            link:    item.link,
+            source:  feed.name,
+            pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
+          }));
+        }),
+
+      // 2. allorigins
+      fetchWithTimeout(`https://api.allorigins.win/raw?url=${encoded}`)
+        .then(r => r.text())
+        .then(xml => {
+          const items = parseRSS(xml, feed);
+          if (!items.length) throw new Error('empty');
+          return items;
+        }),
+
+      // 3. corsproxy.io
+      fetchWithTimeout(`https://corsproxy.io/?${encoded}`)
+        .then(r => r.text())
+        .then(xml => {
+          const items = parseRSS(xml, feed);
+          if (!items.length) throw new Error('empty');
+          return items;
+        }),
+    ];
+
+    // İlk başarılı sonucu al
+    try {
+      return await Promise.any(attempts);
+    } catch(e) {
+      return [];
+    }
+  }
+
+  // Ham RSS/XML ayrıştır
   function parseRSS(xmlStr, feed) {
     try {
       const parser = new DOMParser();
       const doc    = parser.parseFromString(xmlStr, 'text/xml');
       const items  = [...doc.querySelectorAll('item')].slice(0, feed.count);
+      if (!items.length) return [];
       return items.map(item => {
         const get = tag => item.querySelector(tag)?.textContent?.trim() || '';
         const link = get('link') || item.querySelector('guid')?.textContent || '';
@@ -1086,11 +1099,11 @@
         return {
           title:   cleanText(get('title')),
           desc:    cleanText(get('description')),
-          link:    link,
+          link,
           source:  feed.name,
           pubDate: pubStr ? new Date(pubStr) : new Date(),
         };
-      }).filter(i => i.title);
+      }).filter(i => i.title && i.link);
     } catch(e) { return []; }
   }
 
