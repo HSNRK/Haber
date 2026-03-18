@@ -1,4 +1,5 @@
-!DOCTYPE html>
+<!DOCTYPE html>
+
 <html lang="tr">
 <head>
   <meta charset="UTF-8" />
@@ -6,6 +7,7 @@
   <title>Haber Bülteni</title>
 
   <!-- PWA Meta -->
+
   <meta name="theme-color" content="#0d0d0d" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -13,6 +15,7 @@
   <meta name="description" content="Türkiye ve dünya haberleri – saat başı güncellenir" />
 
   <!-- Fonts -->
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
 
@@ -668,10 +671,12 @@
     .news-item:nth-child(9) { animation-delay: 0.32s; }
     .news-item:nth-child(10) { animation-delay: 0.36s; }
   </style>
+
 </head>
 <body>
 
 <!-- HEADER -->
+
 <header>
   <div class="header-inner">
     <div class="logo">
@@ -697,6 +702,7 @@
 </header>
 
 <!-- COUNTDOWN BAR -->
+
 <div class="countdown-bar">
   <div class="countdown-inner">
     <span>Güncelleme:</span>
@@ -708,6 +714,7 @@
 </div>
 
 <!-- TARİHTE BUGÜN TOGGLE -->
+
 <button class="history-toggle" id="historyToggle" onclick="toggleHistory()">
   <div class="history-toggle-inner">
     <div class="history-toggle-left">
@@ -720,6 +727,7 @@
 </button>
 
 <!-- TARİHTE BUGÜN PANELİ -->
+
 <div id="today-in-history">
   <div class="history-inner">
     <div class="history-skel" id="history-skeleton">
@@ -732,6 +740,7 @@
 </div>
 
 <!-- TABS -->
+
 <div class="tabs">
   <div class="tabs-inner">
     <button class="tab-btn active" onclick="switchTab('turkey')" id="tab-turkey">
@@ -747,9 +756,11 @@
 </div>
 
 <!-- MAIN CONTENT -->
+
 <main>
 
   <!-- TURKEY TAB -->
+
   <div class="section active" id="section-turkey">
     <div class="section-header">
       <div class="section-title">Türkiye'den Haberler</div>
@@ -770,6 +781,7 @@
   </div>
 
   <!-- WORLD TAB -->
+
   <div class="section" id="section-world">
     <div class="section-header">
       <div class="section-title">Dünya Haberleri</div>
@@ -789,6 +801,7 @@
   </div>
 
   <!-- ALL TAB -->
+
   <div class="section" id="section-all">
     <div class="section-header">
       <div class="section-title">Son Dakika – Tümü</div>
@@ -802,6 +815,7 @@
 </main>
 
 <!-- INSTALL BANNER (Android/Desktop) -->
+
 <div id="install-banner">
   <div class="install-inner">
     <div class="install-icon">📰</div>
@@ -817,6 +831,7 @@
 </div>
 
 <!-- iOS INSTALL HINT -->
+
 <div id="ios-hint" style="position:relative;">
   <div class="ios-hint-inner">
     <h3>📲 iPhone'a Ekle</h3>
@@ -831,7 +846,6 @@
 
 <script>
   // ── CONFIG ──────────────────────────────────────────────────────────────────
-  const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
 
   const FEEDS = {
@@ -1015,19 +1029,69 @@
     }, 1000);
   }
 
-  // ── FETCH FEED ──────────────────────────────────────────────────────────────
+  // ── FETCH FEED — çoklu proxy yedekli ────────────────────────────────────────
+  const PROXIES = [
+    url => `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&count=15`,
+    url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  ];
+
   async function fetchFeed(feed) {
-    const url = RSS2JSON + encodeURIComponent(feed.url) + '&count=' + feed.count;
-    const res = await fetch(url, { cache: 'no-cache' });
-    const data = await res.json();
-    if (data.status !== 'ok') return [];
-    return data.items.map(item => ({
-      title:  cleanText(item.title),
-      desc:   cleanText(item.description || item.content || ''),
-      link:   item.link,
-      source: feed.name,
-      pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
-    }));
+    // 1. rss2json.com dene
+    try {
+      const url  = PROXIES[0](feed.url);
+      const res  = await fetch(url, { cache: 'no-cache' });
+      const data = await res.json();
+      if (data.status === 'ok' && data.items && data.items.length) {
+        return data.items.slice(0, feed.count).map(item => ({
+          title:   cleanText(item.title),
+          desc:    cleanText(item.description || item.content || ''),
+          link:    item.link,
+          source:  feed.name,
+          pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
+        }));
+      }
+    } catch(e) {}
+
+    // 2. allorigins (ham XML) dene
+    try {
+      const url  = PROXIES[1](feed.url);
+      const res  = await fetch(url, { cache: 'no-cache' });
+      const data = await res.json();
+      const xml  = data.contents;
+      if (xml) return parseRSS(xml, feed);
+    } catch(e) {}
+
+    // 3. corsproxy.io dene
+    try {
+      const url = PROXIES[2](feed.url);
+      const res = await fetch(url, { cache: 'no-cache' });
+      const xml = await res.text();
+      if (xml) return parseRSS(xml, feed);
+    } catch(e) {}
+
+    return [];
+  }
+
+  // Ham RSS/XML'i ayrıştır
+  function parseRSS(xmlStr, feed) {
+    try {
+      const parser = new DOMParser();
+      const doc    = parser.parseFromString(xmlStr, 'text/xml');
+      const items  = [...doc.querySelectorAll('item')].slice(0, feed.count);
+      return items.map(item => {
+        const get = tag => item.querySelector(tag)?.textContent?.trim() || '';
+        const link = get('link') || item.querySelector('guid')?.textContent || '';
+        const pubStr = get('pubDate');
+        return {
+          title:   cleanText(get('title')),
+          desc:    cleanText(get('description')),
+          link:    link,
+          source:  feed.name,
+          pubDate: pubStr ? new Date(pubStr) : new Date(),
+        };
+      }).filter(i => i.title);
+    } catch(e) { return []; }
   }
 
   function cleanText(html) {
@@ -1321,5 +1385,6 @@
   }
   scheduleTopOfHour();
 </script>
+
 </body>
 </html>
