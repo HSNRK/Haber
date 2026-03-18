@@ -937,108 +937,107 @@
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
 
-  const GUARDIAN = 'https://content.guardianapis.com';
-  const G_KEY     = 'test';
+  // GNews API — gerçek kaynaklar, günde 2 sorgu/saat = 48/gün (limit: 100/gün)
+  const GNEWS_KEY  = 'ca44fcb720f1d01ebb06e8c270ff4e37';
+  const GNEWS      = 'https://gnews.io/api/v4/top-headlines';
 
-  // ── FETCH WITH TIMEOUT ─────────────────────────────────────────────────────
-  function fetchTimeout(url, ms = 10000) {
+  // Yedek: Guardian (sadece GNews tamamen çalışmazsa)
+  const GUARDIAN = 'https://content.guardianapis.com';
+  const G_KEY    = 'test';
+
+  function fetchTimeout(url, ms = 12000) {
     const ctrl = new AbortController();
     const id   = setTimeout(() => ctrl.abort(), ms);
     return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(id));
   }
 
   // ── TÜRKÇE ÇEVİRİ ──────────────────────────────────────────────────────────
-  const translateCache = {};
+  const trcache = {};
   async function tr(text) {
     if (!text || text.length < 5) return text;
-    const key = text.slice(0, 80);
-    if (translateCache[key]) return translateCache[key];
+    const k = text.slice(0,80);
+    if (trcache[k]) return trcache[k];
     try {
       const res  = await fetchTimeout(
-        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,400))}&langpair=en|tr`,
-        6000
-      );
+        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,400))}&langpair=en|tr`, 6000);
       const data = await res.json();
       const out  = data?.responseData?.translatedText;
-      if (out && !out.includes('MYMEMORY WARNING') && out !== text) {
-        translateCache[key] = out; return out;
-      }
+      if (out && !out.includes('MYMEMORY WARNING') && out !== text) { trcache[k]=out; return out; }
     } catch(e) {}
-    return text; // çeviri başarısız → orijinal göster
+    return text;
   }
-
   async function translateItems(items) {
-    const results = [];
-    for (let i = 0; i < items.length; i += 4) {
-      const batch = items.slice(i, i + 4);
-      const done  = await Promise.all(batch.map(async item => {
-        const [t, d] = await Promise.all([tr(item.title), tr(item.desc)]);
-        return { ...item, title: t, desc: d };
+    const res = [];
+    for (let i=0; i<items.length; i+=4) {
+      const b = await Promise.all(items.slice(i,i+4).map(async item => {
+        const [t,d] = await Promise.all([tr(item.title), tr(item.desc)]);
+        return {...item, title:t, desc:d};
       }));
-      results.push(...done);
+      res.push(...b);
     }
-    return results;
+    return res;
   }
 
-  // ── GUARDIAN API SORGUSU ────────────────────────────────────────────────────
-  async function g(params, sourceName) {
-    try {
-      const url  = `${GUARDIAN}/search?api-key=${G_KEY}&show-fields=trailText&page-size=8&${params}`;
-      const res  = await fetchTimeout(url, 8000);
-      const data = await res.json();
-      if (data.response?.status !== 'ok') return [];
-      return (data.response.results || []).map(a => ({
-        title:   a.webTitle || '',
-        desc:    a.fields?.trailText || '',
-        link:    a.webUrl  || '#',
-        source:  sourceName || 'The Guardian',
-        pubDate: a.webPublicationDate ? new Date(a.webPublicationDate) : new Date(),
-      })).filter(i => i.title && i.link);
-    } catch(e) { return []; }
-  }
-
-  // ── 🇹🇷 TÜRKİYE ─────────────────────────────────────────────────────────────
-  // Guardian'ın Türkiye aramaları + çeşitli etiketler ile kaynak çeşitliliği
+  // ── 🇹🇷 TÜRKİYE — GNews (Hürriyet, NTV, Sözcü, Habertürk) ─────────────────
   async function fetchTurkeyNews() {
-    const [a, b, c, d, e, f] = await Promise.all([
-      g('q=turkey+politics+OR+erdogan+OR+turkish+government&order-by=newest', 'Hürriyet'),
-      g('q=istanbul+OR+ankara+OR+izmir+OR+turkey+economy&order-by=newest',    'NTV'),
-      g('q=turkey+war+OR+turkey+military+OR+turkey+foreign+policy&order-by=newest', 'Sözcü'),
-      g('q=turkey+earthquake+OR+turkey+disaster+OR+turkey+flood&order-by=newest',   'Habertürk'),
-      g('q=turkey+election+OR+turkey+lira+OR+turkey+inflation&order-by=newest',     'Milliyet'),
-      g('q=turkey+culture+OR+turkey+sport+OR+turkish+news&order-by=newest',         'AA'),
-    ]);
+    try {
+      const url  = `${GNEWS}?lang=tr&country=tr&max=20&apikey=${GNEWS_KEY}`;
+      const res  = await fetchTimeout(url);
+      const data = await res.json();
+      if (data.articles?.length) {
+        return data.articles.map(a => ({
+          title:   a.title       || '',
+          desc:    a.description || '',
+          link:    a.url         || '#',
+          source:  a.source?.name || 'TR',
+          pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
+        })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
+      }
+    } catch(e) { console.warn('GNews TR failed:', e.message); }
 
-    const seen = new Set();
-    const all  = [...a,...b,...c,...d,...e,...f].filter(i => {
-      if (seen.has(i.title)) return false;
-      seen.add(i.title); return true;
-    }).sort((x,y) => y.pubDate - x.pubDate).slice(0, 25);
-
-    return translateItems(all);
+    // Yedek: Guardian Türkiye araması (etiket doğru: "The Guardian")
+    return guardianSearch('q=turkey+istanbul+erdogan+ankara&order-by=newest&page-size=20', 'The Guardian')
+      .then(items => translateItems(items))
+      .catch(() => []);
   }
 
-  // ── 🌍 DÜNYA ─────────────────────────────────────────────────────────────────
-  // Guardian çoklu bölüm sorgusu — BBC/Al Jazeera/CNN etiketleriyle gösterilir
+  // ── 🌍 DÜNYA — GNews (BBC, Reuters, AP gibi kaynaklar) ────────────────────
   async function fetchWorldNews() {
-    const [a, b, c, d, e, f, h, k] = await Promise.all([
-      g('section=world&order-by=newest&page-size=6',                                      'BBC World'),
-      g('q=middle+east+OR+israel+OR+iran+OR+gaza+OR+palestine&order-by=newest',           'Al Jazeera'),
-      g('q=united+states+OR+white+house+OR+trump+OR+congress&order-by=newest',            'CNN Intl'),
-      g('section=politics&order-by=newest&page-size=5',                                   'Sky News'),
-      g('section=business&order-by=newest&page-size=5',                                   'Reuters'),
-      g('section=science&order-by=newest&page-size=4',                                    'NY Times'),
-      g('section=environment&order-by=newest&page-size=4',                                'The Guardian'),
-      g('q=russia+ukraine+OR+china+OR+asia+OR+africa+OR+latin+america&order-by=newest',   'Wash. Post'),
-    ]);
+    try {
+      const url  = `${GNEWS}?lang=en&topic=world&max=20&apikey=${GNEWS_KEY}`;
+      const res  = await fetchTimeout(url);
+      const data = await res.json();
+      if (data.articles?.length) {
+        const items = data.articles.map(a => ({
+          title:   a.title       || '',
+          desc:    a.description || '',
+          link:    a.url         || '#',
+          source:  a.source?.name || 'Dünya',
+          pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
+        })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
+        return translateItems(items);
+      }
+    } catch(e) { console.warn('GNews World failed:', e.message); }
 
-    const seen = new Set();
-    const all  = [...a,...b,...c,...d,...e,...f,...h,...k].filter(i => {
-      if (seen.has(i.title)) return false;
-      seen.add(i.title); return true;
-    }).sort((x,y) => y.pubDate - x.pubDate).slice(0, 28);
+    // Yedek: Guardian dünya haberleri (etiket doğru: "The Guardian")
+    return guardianSearch('section=world&order-by=newest&page-size=20', 'The Guardian')
+      .then(items => translateItems(items))
+      .catch(() => []);
+  }
 
-    return translateItems(all);
+  // Guardian yardımcı — SADECE yedek olarak kullanılır
+  async function guardianSearch(params, label) {
+    const url  = `${GUARDIAN}/search?api-key=${G_KEY}&show-fields=trailText&${params}`;
+    const res  = await fetchTimeout(url);
+    const data = await res.json();
+    if (data.response?.status !== 'ok') return [];
+    return (data.response.results||[]).map(a => ({
+      title:   a.webTitle || '',
+      desc:    a.fields?.trailText || '',
+      link:    a.webUrl || '#',
+      source:  label,
+      pubDate: a.webPublicationDate ? new Date(a.webPublicationDate) : new Date(),
+    })).filter(i => i.title && i.link);
   }
 
   function extractSource(title, fallback) { return fallback; }
