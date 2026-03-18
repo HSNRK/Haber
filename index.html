@@ -843,36 +843,89 @@
 <script>
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
-  const GNEWS_KEY = 'ca44fcb720f1d01ebb06e8c270ff4e37';
-  const GNEWS_BASE = 'https://gnews.io/api/v4/top-headlines';
 
+  // RSS kaynakları — allorigins.win proxy üzerinden çekilir (CORS'u aşar)
   const FEEDS = {
     turkey: [
-      { url: `${GNEWS_BASE}?lang=tr&country=tr&max=10&apikey=${GNEWS_KEY}`,  name: 'Türkiye' },
+      { url: 'https://www.hurriyet.com.tr/rss/anasayfa',         name: 'Hürriyet' },
+      { url: 'https://www.ntv.com.tr/gundem.rss',                name: 'NTV'      },
+      { url: 'https://www.haberturk.com/rss',                    name: 'Habertürk'},
+      { url: 'https://www.sozcu.com.tr/rss/anasayfa.xml',        name: 'Sözcü'    },
     ],
     world: [
-      { url: `${GNEWS_BASE}?lang=en&topic=world&max=10&apikey=${GNEWS_KEY}`, name: 'Dünya' },
-      { url: `${GNEWS_BASE}?lang=en&topic=breaking-news&max=6&apikey=${GNEWS_KEY}`, name: 'Breaking' },
+      { url: 'https://feeds.bbci.co.uk/news/world/rss.xml',      name: 'BBC World'},
+      { url: 'https://www.aljazeera.com/xml/rss/all.xml',        name: 'Al Jazeera'},
+      { url: 'http://rss.cnn.com/rss/edition_world.rss',         name: 'CNN Intl' },
+      { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', name: 'NYTimes'},
     ],
   };
 
-  // ── FETCH FEED ───────────────────────────────────────────────────────────────
+  // ── FETCH FEED — allorigins proxy ile RSS çek ────────────────────────────────
   async function fetchFeed(feed) {
-    try {
-      const res  = await fetch(feed.url, { cache: 'no-cache' });
-      const data = await res.json();
-      if (!data.articles) return [];
-      return data.articles.map(a => ({
-        title:   a.title       || '',
-        desc:    a.description || '',
-        link:    a.url         || '',
-        source:  a.source?.name || feed.name,
-        pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
-      })).filter(i => i.title && i.link);
-    } catch(e) {
-      console.warn('fetchFeed error:', feed.name, e);
-      return [];
+    const proxies = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(feed.url)}`,
+      `https://corsproxy.io/?${encodeURIComponent(feed.url)}`,
+      `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=12`,
+    ];
+
+    for (const proxyUrl of proxies) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(proxyUrl, { cache: 'no-cache', signal: controller.signal });
+        clearTimeout(timeout);
+
+        if (!res.ok) continue;
+
+        // rss2json yanıtı mı?
+        if (proxyUrl.includes('rss2json')) {
+          const data = await res.json();
+          if (data.status === 'ok' && data.items?.length) {
+            return data.items.map(item => ({
+              title:   cleanText(item.title),
+              desc:    cleanText(item.description || item.content || ''),
+              link:    item.link,
+              source:  feed.name,
+              pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
+            })).filter(i => i.title && i.link);
+          }
+          continue;
+        }
+
+        // Ham XML yanıtı
+        const xml = await res.text();
+        if (!xml || xml.length < 100) continue;
+        const items = parseRSS(xml, feed);
+        if (items.length > 0) return items;
+
+      } catch(e) {
+        // bu proxy çalışmadı, sonrakini dene
+        continue;
+      }
     }
+    return [];
+  }
+
+  // Ham RSS/XML ayrıştır
+  function parseRSS(xmlStr, feed) {
+    try {
+      const parser = new DOMParser();
+      const doc    = parser.parseFromString(xmlStr, 'text/xml');
+      const items  = [...doc.querySelectorAll('item')].slice(0, 12);
+      if (!items.length) return [];
+      return items.map(item => {
+        const get = tag => item.querySelector(tag)?.textContent?.trim() || '';
+        const link = get('link') || item.querySelector('guid')?.textContent || '';
+        const pubStr = get('pubDate');
+        return {
+          title:   cleanText(get('title')),
+          desc:    cleanText(get('description')),
+          link,
+          source:  feed.name,
+          pubDate: pubStr ? new Date(pubStr) : new Date(),
+        };
+      }).filter(i => i.title && i.link);
+    } catch(e) { return []; }
   }
 
   // ── BREAKING NEWS KEYWORDS ──────────────────────────────────────────────────
