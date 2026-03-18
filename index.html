@@ -947,6 +947,39 @@
     return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(id));
   }
 
+  // ── TÜRKÇE ÇEVİRİ ──────────────────────────────────────────────────────────
+  const translateCache = {};
+  async function tr(text) {
+    if (!text || text.length < 5) return text;
+    const key = text.slice(0, 80);
+    if (translateCache[key]) return translateCache[key];
+    try {
+      const res  = await fetchTimeout(
+        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,400))}&langpair=en|tr`,
+        6000
+      );
+      const data = await res.json();
+      const out  = data?.responseData?.translatedText;
+      if (out && !out.includes('MYMEMORY WARNING') && out !== text) {
+        translateCache[key] = out; return out;
+      }
+    } catch(e) {}
+    return text; // çeviri başarısız → orijinal göster
+  }
+
+  async function translateItems(items) {
+    const results = [];
+    for (let i = 0; i < items.length; i += 4) {
+      const batch = items.slice(i, i + 4);
+      const done  = await Promise.all(batch.map(async item => {
+        const [t, d] = await Promise.all([tr(item.title), tr(item.desc)]);
+        return { ...item, title: t, desc: d };
+      }));
+      results.push(...done);
+    }
+    return results;
+  }
+
   // ── GUARDIAN API SORGUSU ────────────────────────────────────────────────────
   async function g(params, sourceName) {
     try {
