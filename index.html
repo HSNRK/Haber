@@ -861,9 +861,8 @@
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
 
-  // The Guardian API — ücretsiz, CORS yok, API anahtarı gerekmez (test key çalışır)
   const GUARDIAN = 'https://content.guardianapis.com';
-  const G_KEY    = 'test'; // Guardian'ın herkese açık test anahtarı
+  const G_KEY    = 'test';
 
   // ── FETCH WITH TIMEOUT ───────────────────────────────────────────────────────
   function fetchTimeout(url, ms = 10000) {
@@ -872,56 +871,85 @@
     return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(id));
   }
 
-  // ── GUARDIAN API'DEN HABER ÇEK ──────────────────────────────────────────────
-  async function fetchGuardian(params) {
-    const base = `${GUARDIAN}/search?api-key=${G_KEY}&show-fields=trailText&page-size=20&${params}`;
-    const res  = await fetchTimeout(base);
+  // ── TÜRKÇE ÇEVİRİ (MyMemory — ücretsiz, API key yok) ────────────────────────
+  const translateCache = {};
+
+  async function translateToTurkish(text) {
+    if (!text) return text;
+    const key = text.slice(0, 100);
+    if (translateCache[key]) return translateCache[key];
+    try {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,400))}&langpair=en|tr`;
+      const res  = await fetchTimeout(url, 5000);
+      const data = await res.json();
+      const tr   = data?.responseData?.translatedText;
+      if (tr && tr !== text) {
+        translateCache[key] = tr;
+        return tr;
+      }
+    } catch(e) {}
+    return text; // çeviri başarısız olursa orijinali göster
+  }
+
+  async function translateItems(items) {
+    return Promise.all(items.map(async item => {
+      const [trTitle, trDesc] = await Promise.all([
+        translateToTurkish(item.title),
+        translateToTurkish(item.desc),
+      ]);
+      return { ...item, title: trTitle, desc: trDesc };
+    }));
+  }
+
+  // ── GUARDIAN'DAN HABER ÇEK ──────────────────────────────────────────────────
+  async function fetchGuardian(params, sourceName) {
+    const url  = `${GUARDIAN}/search?api-key=${G_KEY}&show-fields=trailText&page-size=15&${params}`;
+    const res  = await fetchTimeout(url);
     const data = await res.json();
     if (data.response?.status !== 'ok') return [];
     return (data.response.results || []).map(a => ({
       title:   a.webTitle || '',
       desc:    a.fields?.trailText || '',
       link:    a.webUrl  || '#',
-      source:  'The Guardian',
+      source:  sourceName || 'The Guardian',
       pubDate: a.webPublicationDate ? new Date(a.webPublicationDate) : new Date(),
     })).filter(i => i.title);
   }
 
-  // ── TÜRKİYE HABERLERİ — birden fazla kaynak ─────────────────────────────────
+  // ── TÜRKİYE HABERLERİ ───────────────────────────────────────────────────────
   async function fetchTurkeyNews() {
-    // Guardian'dan Türkiye haberleri + genel dünya haberleri (karıştır)
-    const [trNews, moreNews] = await Promise.all([
-      fetchGuardian('q=turkey+OR+türkiye&order-by=newest').catch(() => []),
-      fetchGuardian('q=erdogan+OR+istanbul+OR+ankara&order-by=newest').catch(() => []),
+    const [a, b] = await Promise.all([
+      fetchGuardian('q=turkey+OR+istanbul+OR+erdogan&order-by=newest', 'Guardian – Türkiye').catch(() => []),
+      fetchGuardian('q=ankara+OR+turkish+government+OR+türkiye&order-by=newest', 'Guardian – TR').catch(() => []),
     ]);
-    const combined = [...trNews, ...moreNews];
-    // Tekrar edenleri çıkar
     const seen = new Set();
-    return combined.filter(item => {
-      if (seen.has(item.link)) return false;
-      seen.add(item.link);
-      return true;
+    const raw  = [...a, ...b].filter(i => {
+      if (seen.has(i.link)) return false;
+      seen.add(i.link); return true;
     }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 20);
+
+    // Başlıkları ve açıklamaları Türkçeye çevir
+    return translateItems(raw);
   }
 
   // ── DÜNYA HABERLERİ ─────────────────────────────────────────────────────────
   async function fetchWorldNews() {
-    const [world, intl] = await Promise.all([
-      fetchGuardian('section=world&order-by=newest').catch(() => []),
-      fetchGuardian('section=us-news,world&order-by=newest').catch(() => []),
+    const [a, b, c] = await Promise.all([
+      fetchGuardian('section=world&order-by=newest',            'Guardian – Dünya').catch(() => []),
+      fetchGuardian('section=politics&order-by=newest',         'Guardian – Politika').catch(() => []),
+      fetchGuardian('section=environment,science&order-by=newest','Guardian – Bilim').catch(() => []),
     ]);
-    const combined = [...world, ...intl];
     const seen = new Set();
-    return combined.filter(item => {
-      if (seen.has(item.link)) return false;
-      seen.add(item.link);
-      return true;
+    const raw  = [...a, ...b, ...c].filter(i => {
+      if (seen.has(i.link)) return false;
+      seen.add(i.link); return true;
     }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 20);
+
+    // Türkçeye çevir
+    return translateItems(raw);
   }
 
-  function extractSource(title, fallback) {
-    return fallback;
-  }
+  function extractSource(title, fallback) { return fallback; }
 
   // ── BREAKING NEWS KEYWORDS ──────────────────────────────────────────────────
   // Türkçe + İngilizce kritik anahtar kelimeler
@@ -1154,8 +1182,8 @@
     btn.classList.add('spinning');
 
     // Yükleniyor mesajı göster
-    showLoading('turkey-list', 'Türkiye haberleri yükleniyor…');
-    showLoading('world-list',  'Dünya haberleri yükleniyor…');
+    showLoading('turkey-list', 'Türkiye haberleri çekiliyor ve çevriliyor…');
+    showLoading('world-list',  'Dünya haberleri çekiliyor ve çevriliyor…');
     showLoading('all-list',    'Haberler yükleniyor…');
 
     try {
