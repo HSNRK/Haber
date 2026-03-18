@@ -949,26 +949,58 @@
     return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(id));
   }
 
-  // ── TÜRKÇE ÇEVİRİ ────────────────────────────────────────────────────────────
+  // ── TÜRKÇE ÇEVİRİ — çoklu API yedekli ─────────────────────────────────────
   const translateCache = {};
+
   async function tr(text) {
-    if (!text) return text;
+    if (!text || text.length < 5) return text;
     const key = text.slice(0, 80);
     if (translateCache[key]) return translateCache[key];
+
+    // 1. MyMemory dene — limit mesajı gelirse atla
     try {
-      const res  = await fetchTimeout(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,400))}&langpair=en|tr`, 5000);
+      const res  = await fetchTimeout(
+        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0,400))}&langpair=en|tr`,
+        5000
+      );
       const data = await res.json();
       const out  = data?.responseData?.translatedText;
-      if (out && out !== text) { translateCache[key] = out; return out; }
+      if (out && !out.includes('MYMEMORY WARNING') && out !== text) {
+        translateCache[key] = out;
+        return out;
+      }
     } catch(e) {}
+
+    // 2. LibreTranslate (ücretsiz, açık kaynak) dene
+    try {
+      const r2 = await fetch('https://libretranslate.de/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: text.slice(0,400), source:'en', target:'tr', format:'text' })
+      });
+      const data = await r2.json();
+      if (data?.translatedText && data.translatedText !== text) {
+        translateCache[key] = data.translatedText;
+        return data.translatedText;
+      }
+    } catch(e) {}
+
+    // 3. Tüm çeviriler başarısız → orijinal İngilizce göster
     return text;
   }
 
   async function translateItems(items) {
-    return Promise.all(items.map(async item => {
-      const [t, d] = await Promise.all([tr(item.title), tr(item.desc)]);
-      return { ...item, title: t, desc: d };
-    }));
+    // Toplu çeviri — aynı anda maksimum 5 istek at (rate limit için)
+    const results = [];
+    for (let i = 0; i < items.length; i += 5) {
+      const batch = items.slice(i, i + 5);
+      const translated = await Promise.all(batch.map(async item => {
+        const [t, d] = await Promise.all([tr(item.title), tr(item.desc)]);
+        return { ...item, title: t, desc: d };
+      }));
+      results.push(...translated);
+    }
+    return results;
   }
 
   // ── 🇹🇷 TÜRKİYE — GNews (gerçek Türkçe kaynaklar) ───────────────────────────
@@ -983,7 +1015,7 @@
           title:   a.title       || '',
           desc:    a.description || '',
           link:    a.url         || '#',
-          source:  a.source?.name || 'Türkiye',
+          source:  domainToSource(a.url) || a.source?.name || 'Türkiye',
           pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
         })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
       }
@@ -1012,7 +1044,7 @@
           title:   a.title       || '',
           desc:    a.description || '',
           link:    a.url         || '#',
-          source:  a.source?.name || 'Dünya',
+          source:  domainToSource(a.url) || a.source?.name || 'Dünya',
           pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
         })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
       }
@@ -1048,6 +1080,49 @@
   }
 
   function extractSource(title, fallback) { return fallback; }
+
+  // URL'den gerçek kaynak adını çıkar — etiket her zaman linke uyar
+  function domainToSource(url) {
+    try {
+      const host = new URL(url).hostname.replace('www.','').replace('m.','');
+      const map = {
+        'hurriyet.com.tr':   'Hürriyet',
+        'ntv.com.tr':        'NTV',
+        'haberturk.com':     'Habertürk',
+        'sozcu.com.tr':      'Sözcü',
+        'sabah.com.tr':      'Sabah',
+        'milliyet.com.tr':   'Milliyet',
+        'cumhuriyet.com.tr': 'Cumhuriyet',
+        'bbc.com':           'BBC',
+        'bbc.co.uk':         'BBC',
+        'cnn.com':           'CNN International',
+        'theguardian.com':   'The Guardian',
+        'nytimes.com':       'NY Times',
+        'reuters.com':       'Reuters',
+        'aljazeera.com':     'Al Jazeera',
+        'aljazeera.net':     'Al Jazeera',
+        'skynews.com':       'Sky News',
+        'independent.co.uk': 'The Independent',
+        'ft.com':            'Financial Times',
+        'dw.com':            'Deutsche Welle',
+        'euronews.com':      'Euronews',
+        'apnews.com':        'AP News',
+        'bloomberg.com':     'Bloomberg',
+        'washingtonpost.com':'Washington Post',
+        'trtworld.com':      'TRT World',
+        'aa.com.tr':         'Anadolu Ajansı',
+        'sabah.com':         'Sabah EN',
+        'dailysabah.com':    'Daily Sabah',
+      };
+      for (const [domain, name] of Object.entries(map)) {
+        if (host.endsWith(domain) || host === domain) return name;
+      }
+      // Bilinmeyen domain → temiz isim üret
+      const parts = host.split('.');
+      const base = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+      return base.charAt(0).toUpperCase() + base.slice(1);
+    } catch(e) { return 'Haber'; }
+  }
 
   // ── BREAKING NEWS KEYWORDS ──────────────────────────────────────────────────
   // Türkçe + İngilizce kritik anahtar kelimeler
