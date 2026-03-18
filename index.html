@@ -943,16 +943,26 @@
   const G_KEY      = 'test';
   const RSS2JSON   = 'https://api.rss2json.com/v1/api.json';
 
-  // Dünya RSS kaynakları — rss2json üzerinden (CORS yok, güvenilir)
+  // Türkiye RSS kaynakları
+  const TURKEY_RSS = [
+    { url: 'https://www.hurriyet.com.tr/rss/anasayfa',          name: 'Hürriyet',   count: 6 },
+    { url: 'https://www.ntv.com.tr/gundem.rss',                 name: 'NTV',        count: 6 },
+    { url: 'https://www.haberturk.com/rss',                     name: 'Habertürk',  count: 5 },
+    { url: 'https://www.sozcu.com.tr/rss/anasayfa.xml',         name: 'Sözcü',      count: 5 },
+    { url: 'https://www.milliyet.com.tr/rss/rssNew/gundemRss.aspx', name: 'Milliyet', count: 4 },
+    { url: 'https://www.aa.com.tr/tr/rss/default?cat=guncel',   name: 'AA',         count: 4 },
+  ];
+
+  // Dünya RSS kaynakları
   const WORLD_RSS = [
     { url: 'https://feeds.bbci.co.uk/news/world/rss.xml',                        name: 'BBC World',    count: 6 },
-    { url: 'https://www.aljazeera.com/xml/rss/all.xml',                          name: 'Al Jazeera',   count: 5 },
+    { url: 'https://www.aljazeera.com/xml/rss/all.xml',                          name: 'Al Jazeera',   count: 6 },
     { url: 'https://feeds.skynews.com/feeds/rss/world.xml',                      name: 'Sky News',     count: 5 },
     { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',             name: 'NY Times',     count: 5 },
     { url: 'http://rss.cnn.com/rss/edition_world.rss',                           name: 'CNN Intl',     count: 5 },
     { url: 'https://feeds.reuters.com/reuters/worldNews',                        name: 'Reuters',      count: 5 },
     { url: 'https://www.theguardian.com/world/rss',                              name: 'The Guardian', count: 4 },
-    { url: 'https://feeds.washingtonpost.com/rss/world',                         name: 'Wash. Post',   count: 4 },
+    { url: 'https://feeds.washingtonpost.com/rss/world',                         name: 'Wash. Post',   count: 3 },
   ];
 
   // ── FETCH WITH TIMEOUT ───────────────────────────────────────────────────────
@@ -1016,14 +1026,28 @@
     return results;
   }
 
-  // ── 🇹🇷 TÜRKİYE — GNews (gerçek Türkçe kaynaklar) ───────────────────────────
+  // ── 🇹🇷 TÜRKİYE — RSS önce, GNews yedek, Guardian son yedek ────────────────
   async function fetchTurkeyNews() {
+    // 1. Önce RSS dene (Hürriyet, NTV, Sözcü, Habertürk...)
+    const rssResults = await Promise.all(
+      TURKEY_RSS.map(src => fetchRSS2JSON(src).catch(() => []))
+    );
+    const rssItems = rssResults.flat();
+    if (rssItems.length >= 5) {
+      const seen = new Set();
+      const raw  = rssItems.filter(i => {
+        if (!i.title || !i.link || seen.has(i.link)) return false;
+        seen.add(i.link); return true;
+      }).sort((a,b) => b.pubDate - a.pubDate).slice(0, 25);
+      return raw; // Türkçe haber — çeviriye gerek yok
+    }
+
+    // 2. RSS başarısız → GNews dene
     try {
       const url  = `${GNEWS_BASE}?lang=tr&country=tr&max=20&apikey=${GNEWS_KEY}`;
       const res  = await fetchTimeout(url);
       const data = await res.json();
       if (data.articles?.length) {
-        // GNews gerçek kaynak URL'lerini döndürür — link doğrudur!
         return data.articles.map(a => ({
           title:   a.title       || '',
           desc:    a.description || '',
@@ -1032,17 +1056,17 @@
           pubDate: a.publishedAt ? new Date(a.publishedAt) : new Date(),
         })).filter(i => i.title && i.link && !i.link.includes('gnews.io'));
       }
-    } catch(e) { console.warn('GNews TR failed:', e); }
+    } catch(e) {}
 
-    // GNews başarısız → Guardian TR araması (doğru etiketle)
+    // 3. Son çare: Guardian'dan Türkiye araması + çeviri
     const [a, b] = await Promise.all([
       fetchGuardian('q=turkey+istanbul+erdogan&order-by=newest&page-size=10', 'The Guardian').catch(() => []),
       fetchGuardian('q=ankara+turkish+economy&order-by=newest&page-size=10',  'The Guardian').catch(() => []),
     ]);
-    const seen = new Set();
-    const raw  = [...a, ...b].filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
+    const seen2 = new Set();
+    const raw2  = [...a, ...b].filter(i => { if (seen2.has(i.link)) return false; seen2.add(i.link); return true; })
                   .sort((a,b) => b.pubDate - a.pubDate).slice(0, 20);
-    return translateItems(raw);
+    return translateItems(raw2);
   }
 
   // ── 🌍 DÜNYA — RSS'den gerçek çoklu kaynak (BBC, Al Jazeera, Sky, NYT, CNN...) ──
@@ -1082,7 +1106,7 @@
 
   // ── RSS2JSON YARDIMCI ──────────────────────────────────────────────────────────
   async function fetchRSS2JSON(src) {
-    const url  = `${RSS2JSON}?rss_url=${encodeURIComponent(src.url)}&count=${src.count}&api_key=`;
+    const url  = `${RSS2JSON}?rss_url=${encodeURIComponent(src.url)}&count=${src.count}`;
     const res  = await fetchTimeout(url, 9000);
     const data = await res.json();
     if (data.status !== 'ok' || !data.items?.length) return [];
