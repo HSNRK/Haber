@@ -637,6 +637,19 @@
       animation: shimmer 1.5s ease-in-out infinite;
     }
 
+    /* ── LOADING MESSAGE ── */
+    .loading-msg {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+    }
+    .loading-spin {
+      font-size: 32px;
+      margin-bottom: 12px;
+      animation: spin 2s linear infinite;
+    }
+    .loading-msg p { font-size: 13px; }
+
     /* ── LAST UPDATE ── */
     .last-update {
       text-align: center;
@@ -847,113 +860,77 @@
 <script>
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   const REFRESH_INTERVAL = 60 * 60 * 1000; // 1 saat
+  const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
 
-  // Google News RSS — proxy'ye gerek yok, CORS sorunsuz çalışır
-  const FEEDS = {
-    turkey: [
-      { url: 'https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr',            name: 'Google Haberler TR' },
-      { url: 'https://news.google.com/rss/search?q=türkiye&hl=tr&gl=TR&ceid=TR:tr', name: 'Türkiye' },
-    ],
-    world: [
-      { url: 'https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en',         name: 'Google News'  },
-      { url: 'https://news.google.com/rss/search?q=world+news&hl=en&gl=US&ceid=US:en', name: 'World' },
-    ],
-  };
+  // ── CLAUDE API İLE HABER ÇEK ────────────────────────────────────────────────
+  // Proxy veya RSS sorunu yok — Claude web'de arama yaparak haberleri getirir
 
-  // ── FETCH WITH TIMEOUT ───────────────────────────────────────────────────────
-  function fetchTimeout(url, ms = 9000) {
-    const ctrl = new AbortController();
-    const id   = setTimeout(() => ctrl.abort(), ms);
-    return fetch(url, { cache: 'no-cache', signal: ctrl.signal })
-             .finally(() => clearTimeout(id));
+  async function fetchNewsViaClaude(topic, lang) {
+    const isturkey = lang === 'tr';
+    const prompt = isturkey
+      ? `Sen bir haber asistanısın. Şu an Türkiye'deki en önemli ve güncel 12 haberi listele. Bugünün tarihi: ${new Date().toLocaleDateString('tr-TR')}. 
+
+Her haber için şu JSON formatını kullan. SADECE JSON döndür, başka hiçbir şey yazma:
+[
+  {
+    "title": "Haber başlığı",
+    "desc": "2-3 cümlelik özet",
+    "link": "https://haber.linki.com",
+    "source": "Kaynak adı (NTV, Hürriyet, CNN Türk vb.)",
+    "pubDate": "2025-03-18T12:00:00Z"
+  }
+]`
+      : `You are a news assistant. List the 12 most important current world news stories right now. Today's date: ${new Date().toLocaleDateString('en-US')}.
+
+Return ONLY a JSON array, no other text:
+[
+  {
+    "title": "News headline",
+    "desc": "2-3 sentence summary",
+    "link": "https://news.link.com",
+    "source": "Source name (BBC, CNN, Reuters etc.)",
+    "pubDate": "2025-03-18T12:00:00Z"
+  }
+]`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 2000,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    const data = await response.json();
+
+    // Tüm text bloklarını birleştir
+    const text = (data.content || [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('');
+
+    // JSON array'i bul ve parse et
+    const match = text.match(/\[[\s\S]*\]/);
+    if (!match) return [];
+
+    const items = JSON.parse(match[0]);
+    return items.map(item => ({
+      title:   item.title   || '',
+      desc:    item.desc    || '',
+      link:    item.link    || '#',
+      source:  item.source  || (isturkey ? 'Türkiye' : 'Dünya'),
+      pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
+    })).filter(i => i.title);
   }
 
-  // ── FETCH FEED — Google News için önce direkt dene, sonra proxy ──────────────
-  async function fetchFeed(feed) {
-    const enc = encodeURIComponent(feed.url);
-
-    const tries = [
-      // 1. rss2json — Google News'i iyi parse eder
-      () => fetchTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${enc}&count=15`)
-              .then(r => r.json())
-              .then(data => {
-                if (data.status !== 'ok' || !data.items?.length) throw 0;
-                return data.items.map(item => ({
-                  title:   cleanText(item.title),
-                  desc:    cleanText(item.description || item.content || ''),
-                  link:    item.link,
-                  source:  extractSource(item.title, feed.name),
-                  pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
-                })).filter(i => i.title && i.link);
-              }),
-
-      // 2. allorigins /get (JSON wrapper)
-      () => fetchTimeout(`https://api.allorigins.win/get?url=${enc}`)
-              .then(r => r.json())
-              .then(d => {
-                const items = parseRSS(d.contents || '', feed);
-                if (!items.length) throw 0;
-                return items;
-              }),
-
-      // 3. codetabs
-      () => fetchTimeout(`https://api.codetabs.com/v1/proxy?quest=${enc}`)
-              .then(r => r.text())
-              .then(xml => {
-                const items = parseRSS(xml, feed);
-                if (!items.length) throw 0;
-                return items;
-              }),
-    ];
-
-    for (const fn of tries) {
-      try {
-        const result = await fn();
-        if (result && result.length > 0) return result;
-      } catch(e) { /* sonraki proxy */ }
-    }
-    return [];
-  }
-
-  // Google News başlıklarından kaynak adını çıkar — "Başlık - Kaynak" formatı
   function extractSource(title, fallback) {
     if (!title) return fallback;
     const parts = title.split(' - ');
     if (parts.length > 1) return parts[parts.length - 1].trim();
     return fallback;
-  }
-
-  // Başlıktan kaynak adını çıkar ve temizle
-  function cleanTitle(title) {
-    if (!title) return '';
-    // Google News "Başlık - Kaynak" formatındaki kaynak kısmını kaldır
-    const parts = title.split(' - ');
-    if (parts.length > 1) parts.pop();
-    return cleanText(parts.join(' - '));
-  }
-
-  // ── RSS/XML PARSER ────────────────────────────────────────────────────────────
-  function parseRSS(xmlStr, feed) {
-    try {
-      if (!xmlStr || xmlStr.length < 50) return [];
-      const parser = new DOMParser();
-      const doc    = parser.parseFromString(xmlStr, 'text/xml');
-      const items  = [...doc.querySelectorAll('item')].slice(0, 15);
-      if (!items.length) return [];
-      return items.map(item => {
-        const g = tag => item.querySelector(tag)?.textContent?.trim() || '';
-        const rawLink = g('link') || item.querySelector('guid')?.textContent || '';
-        const pubStr  = g('pubDate') || g('published');
-        const rawTitle = g('title');
-        return {
-          title:   cleanTitle(rawTitle) || cleanText(rawTitle),
-          desc:    cleanText(g('description') || g('summary')),
-          link:    rawLink,
-          source:  extractSource(rawTitle, feed.name),
-          pubDate: pubStr ? new Date(pubStr) : new Date(),
-        };
-      }).filter(i => i.title && i.link);
-    } catch(e) { return []; }
   }
 
   // ── BREAKING NEWS KEYWORDS ──────────────────────────────────────────────────
@@ -1172,29 +1149,35 @@
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+
   // ── REFRESH ALL ─────────────────────────────────────────────────────────────
   let isFirstLoad = true;
+
+  // Yüklenme durumu göster
+  function showLoading(containerId, msg) {
+    const el = document.getElementById(containerId);
+    if (el) el.innerHTML = `<div class="loading-msg"><div class="loading-spin">⏳</div><p>${msg}</p></div>`;
+  }
 
   async function refreshAll() {
     const btn = document.getElementById('refreshBtn');
     btn.classList.add('spinning');
 
+    // Yükleniyor mesajı göster
+    showLoading('turkey-list', 'Türkiye haberleri yükleniyor…');
+    showLoading('world-list',  'Dünya haberleri yükleniyor…');
+    showLoading('all-list',    'Haberler yükleniyor…');
+
     try {
-      // Turkey
-      const trPromises = FEEDS.turkey.map(f => fetchFeed(f).catch(() => []));
-      const trResults  = await Promise.all(trPromises);
-      const newTurkey  = trResults.flat().sort((a,b) => b.pubDate - a.pubDate).slice(0, 30);
+      // Claude API ile paralel çek
+      const [newTurkey, newWorld] = await Promise.all([
+        fetchNewsViaClaude('turkey', 'tr').catch(() => []),
+        fetchNewsViaClaude('world',  'en').catch(() => []),
+      ]);
 
-      // World
-      const wdPromises = FEEDS.world.map(f => fetchFeed(f).catch(() => []));
-      const wdResults  = await Promise.all(wdPromises);
-      const newWorld   = wdResults.flat().sort((a,b) => b.pubDate - a.pubDate).slice(0, 30);
-
-      // 🔔 BİLDİRİMLER — ilk yüklemede değil, sonraki güncellemelerde çalış
+      // 🔔 BİLDİRİMLER
       if (!isFirstLoad) {
-        // Son dakika taraması
         scanAndNotifyBreaking([...newTurkey, ...newWorld]);
-        // Saatlik özet — başlıkları göster
         sendHourlyNotification(newTurkey, newWorld);
       }
 
@@ -1213,7 +1196,6 @@
     const allNews = [...allTurkeyNews, ...allWorldNews].sort((a,b) => b.pubDate - a.pubDate);
     renderNewsList(allNews, 'all-list');
 
-    // Update counts
     document.getElementById('tr-count').textContent    = allTurkeyNews.length + ' haber';
     document.getElementById('world-count').textContent  = allWorldNews.length  + ' haber';
     document.getElementById('all-count').textContent    = allNews.length        + ' haber';
